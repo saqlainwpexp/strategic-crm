@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { DM_Sans, Inter, Manrope, Plus_Jakarta_Sans } from "next/font/google";
 import "./globals.css";
-import { getBranding } from "@/lib/branding.server";
+import { getBranding } from "@/server/settings";
 import { themeVars } from "@/lib/theme";
 import { setTimeZone } from "@/lib/date";
 import { BrandingProvider } from "@/components/providers/BrandingProvider";
@@ -15,8 +15,8 @@ const manrope = Manrope({ subsets: ["latin"], weight: ["300", "400", "500", "600
 // Branding is read per request so a saved change applies immediately.
 export const dynamic = "force-dynamic";
 
-export function generateMetadata(): Metadata {
-  const b = getBranding();
+export async function generateMetadata(): Promise<Metadata> {
+  const b = await getBranding();
   return {
     title: b.appName,
     description: `${b.appName} — cold-calling CRM for ${b.agencyName}.`,
@@ -24,8 +24,8 @@ export function generateMetadata(): Metadata {
   };
 }
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
-  const branding = getBranding();
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  const branding = await getBranding();
   setTimeZone(branding.timezone);
   return (
     <html

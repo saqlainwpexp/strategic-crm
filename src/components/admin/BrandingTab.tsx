@@ -8,7 +8,7 @@ import { Card, CardHeader } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Field, Input, Select, Toggle } from "@/components/ui/Form";
 import { BrandMark, LogoMark } from "@/components/layout/Logo";
-import { saveBranding } from "@/app/actions";
+import { saveBrandingAction } from "@/server/actions";
 import {
   DEFAULT_BRANDING,
   FONTS,
@@ -60,10 +60,10 @@ export function BrandingTab() {
 
   const save = () =>
     startTransition(async () => {
-      const res = await saveBranding(draft);
+      const res = await saveBrandingAction(draft);
       if (res.ok) {
-        markSaved(res.branding);
-        setDraft(res.branding);
+        markSaved(res.data);
+        setDraft(res.data);
         notify("Branding saved");
       } else {
         notify(res.error);

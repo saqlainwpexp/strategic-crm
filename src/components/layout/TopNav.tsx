@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { signOut } from "next-auth/react";
 import {
   ArrowRight,
   Bell,
@@ -13,6 +14,8 @@ import {
   Check,
   ChevronDown,
   Clock,
+  KeyRound,
+  LogOut,
   Columns3,
   FileText,
   LayoutGrid,
@@ -34,7 +37,7 @@ import { HOME_PATH, NAV_ITEMS, navFor, type NavKey } from "@/lib/nav";
 import { ROLE_LABELS } from "@/lib/constants";
 import { dayKey, formatTime, relativeTime, todayKey } from "@/lib/date";
 import { upcomingFor } from "@/lib/queue";
-import { setViewAs } from "@/app/actions";
+import { ChangePasswordModal } from "@/components/shared/ChangePasswordModal";
 import { useCrm } from "@/components/providers/CrmProvider";
 import { useBranding } from "@/components/providers/BrandingProvider";
 import { Avatar } from "@/components/ui/Avatar";
@@ -614,10 +617,9 @@ function useNow(intervalMs = 30_000) {
 }
 
 function UserMenu({ variant, open, onToggle, onClose }: DropdownProps) {
-  const { viewer, allUsers, activeShift, clockIn, clockOut } = useCrm();
+  const { viewer, activeShift, clockIn, clockOut } = useCrm();
   const ref = useDismiss(open, onClose);
-  const router = useRouter();
-  const [pending, startTransition] = useTransition();
+  const [changingPassword, setChangingPassword] = useState(false);
   const now = useNow();
   const shift = activeShift();
   const onShiftFor = shift && now ? Math.max(0, Math.round((now - new Date(shift.clockIn).getTime()) / 1000)) : 0;
@@ -683,34 +685,29 @@ function UserMenu({ variant, open, onToggle, onClose }: DropdownProps) {
             {shift && <p className="mt-2 text-[12px] text-neutral-500">Started at {formatTime(shift.clockIn)}</p>}
           </div>
 
-          <p className="px-3 pb-2 pt-5 text-[11.5px] uppercase tracking-[0.06em] text-neutral-400">Preview as · demo</p>
-          {allUsers.map((u) => (
+          <div className="mt-2 flex flex-col gap-0.5 border-t border-neutral-100 pt-2">
+            <p className="px-3 pb-1 pt-1.5 text-[12px] text-neutral-500">
+              {ROLE_LABELS[viewer.role]} · {viewer.email}
+            </p>
             <button
-              key={u.id}
-              disabled={pending}
-              onClick={() =>
-                startTransition(async () => {
-                  await setViewAs(u.id);
-                  onClose();
-                  router.push(HOME_PATH);
-                  router.refresh();
-                })
-              }
-              className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left hover:bg-page disabled:opacity-60"
+              onClick={() => {
+                onClose();
+                setChangingPassword(true);
+              }}
+              className="flex h-11 w-full items-center gap-3 rounded-xl px-3 text-left text-[13.5px] hover:bg-page"
             >
-              <Avatar name={u.name} size={30} />
-              <span className="min-w-0 flex-1">
-                <span className="block truncate text-[13.5px]">{u.name}</span>
-                <span className="block truncate text-[11.5px] text-neutral-500">{ROLE_LABELS[u.role]}</span>
-              </span>
-              {u.id === viewer.id && <Check className="h-4 w-4 text-brand" strokeWidth={2.2} />}
+              <KeyRound className="h-4 w-4" strokeWidth={1.8} /> Change password
             </button>
-          ))}
-          <p className="px-3 pb-2 pt-3 text-[11.5px] leading-relaxed text-neutral-400">
-            Real sign-in replaces this switcher once the database is connected.
-          </p>
+            <button
+              onClick={() => signOut({ callbackUrl: "/login" })}
+              className="flex h-11 w-full items-center gap-3 rounded-xl px-3 text-left text-[13.5px] text-rose-600 hover:bg-rose-50"
+            >
+              <LogOut className="h-4 w-4" strokeWidth={1.8} /> Sign out
+            </button>
+          </div>
         </div>
       )}
+      <ChangePasswordModal open={changingPassword} onClose={() => setChangingPassword(false)} />
     </div>
   );
 }

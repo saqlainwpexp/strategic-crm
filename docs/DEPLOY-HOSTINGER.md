@@ -7,12 +7,10 @@ Hostinger's hPanel changes its labels from time to time — if a menu name below
 
 1. Create the MySQL database (you)
 2. Allow your PC to reach it, and add the connection to `.env` (you)
-3. Connect the app to the database + real logins (developer step — code changes)
-4. Create the tables and the first users
+3. Create the tables and starter content (`npm run db:push`, `npm run db:seed`)
+4. Create your Super Admin login (`npm run create-admin` — you type the password)
 5. Deploy the Node.js app from GitHub (you, in hPanel)
-6. Point your domain at it and switch on SSL
-
-> ⚠️ Until step 3 is done the app runs on demo data with a "Preview as" role switcher instead of logins. Don't publish the URL before then.
+6. Point your domain at it and switch on SSL, then add your team in the app
 
 ---
 
@@ -68,18 +66,27 @@ NEXTAUTH_URL="http://localhost:3000"
 
 `.env` is git-ignored, so it never goes to GitHub.
 
-## 5. Connect the app to the database (code step)
+## 5. Create the tables and starter content
 
-This is the developer step: replace the demo data with Prisma queries, add login (NextAuth with email + password), and move branding into the database. Once `.env` is in place, this can be built and tested against your real database.
-
-## 6. Create the tables and first users
-
-With `.env` pointing at the remote host:
+With `.env` pointing at your Hostinger database (the **Remote MySQL** host), run these in a terminal in the project folder:
 
 ```bash
-npm run db:push     # creates all tables in your Hostinger database
-npm run db:seed     # creates your team's accounts (and optional demo leads) — available after step 5
+npm run db:push     # creates all tables in the Hostinger database
+npm run db:seed     # adds starter call scripts, custom lead fields, a default lead pool and default settings
 ```
+
+`db:seed` creates **no** users and **no** leads, and it's safe to run again (it only fills empty tables).
+Branding you saved on your PC before the database existed (logo, colours, font) is copied into the database automatically the first time the app starts.
+
+## 6. Create your Super Admin login
+
+```bash
+npm run create-admin
+```
+
+It asks for your name, email and a password (typed hidden, at least 10 characters). Running it again with the same email resets that account's password — useful if you ever lock yourself out.
+
+Then run `npm run dev`, open http://localhost:3000, sign in, and add your team under **Team → Add member** (each person gets a temporary password you share with them privately; they can change it from their avatar menu).
 
 ## 7. Deploy the app on Hostinger
 
@@ -109,7 +116,9 @@ npm run db:seed     # creates your team's accounts (and optional demo leads) —
 
 ## 9. After the first deploy
 
-- Sign in as the Super Admin and open **Admin → Branding**: upload the logo again and check colours, currency and timezone (default **US Eastern**) — branding saved on your PC doesn't travel with the code.
+The tables, your admin account and your team already live in the database, so the live site uses them straight away — there's nothing to run on the server.
+
+- Sign in at https://crm.strategiccoresolutions.com and check **Admin → Branding** (logo, colours, currency, timezone — default **US Eastern**).
 - Check **Admin → Settings**: dialer (Zoom Phone), lead temperature thresholds and reminder timing.
 - Ask each rep to open the Loadboard and **turn on desktop alerts** for reminders.
 
@@ -122,3 +131,12 @@ npm run db:seed     # creates your team's accounts (and optional demo leads) —
 | Password with special characters breaks the URL | URL-encode them (see step 4) or change the password. |
 | Build runs out of memory | Hostinger plans have limited RAM; retry, or build locally and upload. |
 | App starts but pages error | Missing environment variables in the Hostinger app settings. |
+
+## Security notes
+
+- Every page and every save checks the signed-in user on the server; sales reps only ever receive their own leads, BD their team's.
+- Passwords are stored as bcrypt hashes. 5 wrong passwords lock an account for 15 minutes; sign-in is also throttled per IP.
+- Changing or resetting a password, or deactivating a user, signs them out everywhere immediately.
+- Sign-ins, lockouts, role changes, password resets, imports and settings changes are written to the `AuditLog` table.
+- Keep `NEXTAUTH_SECRET` and the database password only in `.env` (your PC) and the Hostinger environment variables — never in GitHub or chat.
+- Remove your IP from **Remote MySQL** once setup is done, and re-add it only when you need to run the commands above again.

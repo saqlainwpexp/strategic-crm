@@ -237,7 +237,7 @@ function Overview({ lead }: { lead: Lead }) {
           <Info icon={Mail} label="Email">{lead.email || "—"}</Info>
           <Info icon={Globe} label="Website">
             {lead.website ? (
-              <a className="underline-offset-4 hover:underline" href={`https://${lead.website}`} target="_blank" rel="noreferrer">
+              <a className="underline-offset-4 hover:underline" href={`https://${lead.website.replace(/^https?:\/\//, "")}`} target="_blank" rel="noreferrer">
                 {lead.website}
               </a>
             ) : (

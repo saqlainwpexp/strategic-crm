@@ -194,9 +194,14 @@ function MemberModal({ open, member, onClose }: { open: boolean; member: User | 
   const { data, viewer, saveUser } = useCrm();
   const blank: Omit<User, "id"> = { name: "", email: "", role: "SALES", title: "Sales Executive", reportsToId: null, active: true };
   const [d, setD] = useState<Omit<User, "id">>(blank);
+  const [password, setPassword] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     if (!open) return;
+    setPassword("");
+    setCopied(false);
     if (member) {
       const { id: _id, ...rest } = member;
       setD(rest);
@@ -210,27 +215,34 @@ function MemberModal({ open, member, onClose }: { open: boolean; member: User | 
   const leaders = data.users.filter(
     (u) => u.id !== member?.id && (d.role === "SALES" ? u.role === "BD" || u.role === "MANAGER" : u.role === "MANAGER")
   );
-  const valid = d.name.trim() && /\S+@\S+\.\S+/.test(d.email);
+  const passwordOk = member ? password === "" || password.length >= MIN_PASSWORD : password.length >= MIN_PASSWORD;
+  const valid = d.name.trim() && /\S+@\S+\.\S+/.test(d.email) && passwordOk;
+  const generate = () => {
+    setPassword(randomPassword());
+    setCopied(false);
+  };
 
   return (
     <Modal
       open={open}
       onClose={onClose}
       title={member ? `Edit ${member.name}` : "Add a team member"}
-      subtitle="Login credentials are issued from here once authentication is connected to the database."
+      subtitle={member ? "Leave the password empty to keep their current one." : "Share the email and temporary password with them privately — they can change it after signing in."}
       footer={
         <>
           <Button variant="secondary" onClick={onClose}>
             Cancel
           </Button>
           <Button
-            disabled={!valid}
-            onClick={() => {
-              saveUser({ ...d, id: member?.id, name: d.name.trim(), email: d.email.trim() });
-              onClose();
+            disabled={!valid || saving}
+            onClick={async () => {
+              setSaving(true);
+              const ok = await saveUser({ ...d, id: member?.id, name: d.name.trim(), email: d.email.trim(), password: password || undefined });
+              setSaving(false);
+              if (ok) onClose();
             }}
           >
-            {member ? "Save changes" : "Add member"}
+            {saving ? "Saving…" : member ? "Save changes" : "Add member"}
           </Button>
         </>
       }
@@ -277,7 +289,44 @@ function MemberModal({ open, member, onClose }: { open: boolean; member: User | 
             <Toggle checked={d.active} onChange={(v) => setD({ ...d, active: v })} label={d.active ? "Active" : "Deactivated"} />
           </div>
         </Field>
+        <Field
+          label={member ? "Reset password (optional)" : "Temporary password"}
+          required={!member}
+          hint={password && password.length < MIN_PASSWORD ? `At least ${MIN_PASSWORD} characters.` : `At least ${MIN_PASSWORD} characters. Resetting signs them out everywhere.`}
+          className="sm:col-span-2"
+        >
+          <div className="flex gap-2">
+            <Input type="text" autoComplete="new-password" spellCheck={false} value={password} onChange={(e) => setPassword(e.target.value)} className="font-mono" />
+            <Button variant="secondary" onClick={generate}>
+              Generate
+            </Button>
+            {password && (
+              <Button
+                variant="secondary"
+                onClick={async () => {
+                  try {
+                    await navigator.clipboard.writeText(password);
+                    setCopied(true);
+                  } catch {
+                    /* clipboard blocked */
+                  }
+                }}
+              >
+                {copied ? "Copied" : "Copy"}
+              </Button>
+            )}
+          </div>
+        </Field>
       </div>
     </Modal>
   );
+}
+
+const MIN_PASSWORD = 10;
+
+/** 16 characters from an unambiguous alphabet, using the browser's secure random generator. */
+function randomPassword() {
+  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789!@#%*-_";
+  const bytes = crypto.getRandomValues(new Uint32Array(16));
+  return Array.from(bytes, (b) => alphabet[b % alphabet.length]).join("");
 }

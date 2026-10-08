@@ -82,80 +82,86 @@ enum CustomFieldType {
 // ─────────────────────────── Core ────────────────────────────
 
 model User {
-  id           String   @id @default(cuid())
+  id           String  @id @default(cuid())
   name         String
-  email        String   @unique
+  email        String  @unique
   passwordHash String
-  role         Role     @default(SALES)
-  active       Boolean  @default(true)
-  timezone     String   @default("Asia/Karachi")
+  role         Role    @default(SALES)
+  title        String  @default("")
+  active       Boolean @default(true)
   avatarUrl    String?
 
+  // Login security: lock the account briefly after repeated failed sign-ins.
+  failedLogins      Int       @default(0)
+  lockedUntil       DateTime?
+  lastLoginAt       DateTime?
+  passwordChangedAt DateTime?
+
   // Hierarchy: Sales -> BD -> Manager
-  reportsToId  String?
-  reportsTo    User?    @relation("Reports", fields: [reportsToId], references: [id], onDelete: SetNull)
-  reports      User[]   @relation("Reports")
+  reportsToId String?
+  reportsTo   User?   @relation("Reports", fields: [reportsToId], references: [id], onDelete: SetNull)
+  reports     User[]  @relation("Reports")
 
-  leads        Lead[]       @relation("AssignedLeads")
-  calls        CallLog[]
-  meetings     Meeting[]
-  payments     Payment[]
-  timeLogs     TimeLog[]
-  uploads      CsvImport[]
-  auditLogs    AuditLog[]
-  scripts      Script[]
+  leads     Lead[]      @relation("AssignedLeads")
+  calls     CallLog[]
+  meetings  Meeting[]
+  payments  Payment[]
+  timeLogs  TimeLog[]
+  uploads   CsvImport[]
+  auditLogs AuditLog[]
+  scripts   Script[]
 
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([reportsToId])
   @@index([role])
 }
 
 model Pool {
-  id        String   @id @default(cuid())
-  name      String   @unique
-  notes     String?  @db.Text
-  leads     Lead[]
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id          String   @id @default(cuid())
+  name        String   @unique
+  description String?  @db.Text
+  leads       Lead[]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 }
 
 model Lead {
-  id                 String          @id @default(cuid())
-  businessName       String
-  address            String?         @db.Text
-  website            String?
-  issues             String?         @db.Text
-  suggestedServices  String?         @db.Text
-  phone              String?
-  email              String?
-  priority           LeadPriority    @default(MEDIUM)
-  source             String?
-  decisionMakerName  String?
-  city               String?
-  leadScore          Int             @default(0) // 0-100; Cold/Warm/Hot is derived using Setting thresholds
-  stage              PipelineStage   @default(LEAD)
-  service            String          @default("Web Design") // Web Design / Graphic Design / GHL
-  estimatedValue     Decimal         @default(0) @db.Decimal(12, 2)
-  notes              String?         @db.Text
-  customFields       Json? // admin-defined extra fields, keyed by CustomFieldDef.key
+  id                String        @id @default(cuid())
+  businessName      String
+  address           String?       @db.Text
+  website           String?
+  issues            String?       @db.Text
+  suggestedServices String?       @db.Text
+  phone             String?
+  email             String?
+  priority          LeadPriority  @default(MEDIUM)
+  source            String?
+  decisionMakerName String?
+  city              String?
+  leadScore         Int           @default(0) // 0-100; Cold/Warm/Hot is derived using Setting thresholds
+  stage             PipelineStage @default(LEAD)
+  service           String        @default("Web Design") // Web Design / Graphic Design / GHL
+  estimatedValue    Decimal       @default(0) @db.Decimal(12, 2)
+  notes             String?       @db.Text
+  customFields      Json? // admin-defined extra fields, keyed by CustomFieldDef.key
 
-  assignedToId       String?
-  assignedTo         User?           @relation("AssignedLeads", fields: [assignedToId], references: [id], onDelete: SetNull)
+  assignedToId String?
+  assignedTo   User?   @relation("AssignedLeads", fields: [assignedToId], references: [id], onDelete: SetNull)
 
-  poolId             String?
-  pool               Pool?           @relation(fields: [poolId], references: [id], onDelete: SetNull)
+  poolId String?
+  pool   Pool?   @relation(fields: [poolId], references: [id], onDelete: SetNull)
 
-  calls              CallLog[]
-  meetings           Meeting[]
-  payments           Payment[]
+  calls    CallLog[]
+  meetings Meeting[]
+  payments Payment[]
 
-  createdAt          DateTime        @default(now())
-  updatedAt          DateTime        @updatedAt
-  lastContactedAt    DateTime?
-  nextFollowUpAt     DateTime?
-  closedAt           DateTime? // when the lead became a signed client
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  lastContactedAt DateTime?
+  nextFollowUpAt  DateTime?
+  closedAt        DateTime? // when the lead became a signed client
 
   @@index([assignedToId])
   @@index([poolId])
@@ -168,19 +174,19 @@ model Lead {
 }
 
 model CallLog {
-  id          String          @id @default(cuid())
+  id          String           @id @default(cuid())
   leadId      String
-  lead        Lead            @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  lead        Lead             @relation(fields: [leadId], references: [id], onDelete: Cascade)
   userId      String
-  user        User            @relation(fields: [userId], references: [id], onDelete: Cascade)
-  startedAt   DateTime        @default(now())
+  user        User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  startedAt   DateTime         @default(now())
   endedAt     DateTime?
-  durationSec Int             @default(0)
+  durationSec Int              @default(0)
   disposition CallDisposition?
   scriptId    String?
-  script      Script?         @relation(fields: [scriptId], references: [id], onDelete: SetNull)
-  notes       String?         @db.Text
-  createdAt   DateTime        @default(now())
+  script      Script?          @relation(fields: [scriptId], references: [id], onDelete: SetNull)
+  notes       String?          @db.Text
+  createdAt   DateTime         @default(now())
 
   @@index([leadId])
   @@index([userId])
@@ -188,16 +194,16 @@ model CallLog {
 }
 
 model Script {
-  id        String    @id @default(cuid())
-  title     String
-  category  String?
-  body      String    @db.Text
-  active    Boolean   @default(true)
+  id          String    @id @default(cuid())
+  title       String
+  category    String?
+  body        String    @db.Text
+  active      Boolean   @default(true)
   createdById String?
-  createdBy   User?   @relation(fields: [createdById], references: [id], onDelete: SetNull)
-  calls     CallLog[]
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
+  createdBy   User?     @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  calls       CallLog[]
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 }
 
 model Meeting {
@@ -241,12 +247,12 @@ model Payment {
 }
 
 model TimeLog {
-  id        String    @id @default(cuid())
-  userId    String
-  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  clockIn   DateTime  @default(now())
-  clockOut  DateTime?
-  durationSec Int     @default(0)
+  id          String    @id @default(cuid())
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  clockIn     DateTime  @default(now())
+  clockOut    DateTime?
+  durationSec Int       @default(0)
 
   @@index([userId])
   @@index([clockIn])
@@ -265,17 +271,19 @@ model CustomFieldDef {
 }
 
 model CsvImport {
-  id           String   @id @default(cuid())
-  fileName     String
-  rowCount     Int      @default(0)
-  successCount Int      @default(0)
-  errorCount   Int      @default(0)
-  status       String   @default("completed")
-  mapping      Json?
-  errors       Json?
-  uploadedById String?
-  uploadedBy   User?    @relation(fields: [uploadedById], references: [id], onDelete: SetNull)
-  createdAt    DateTime @default(now())
+  id             String   @id @default(cuid())
+  fileName       String
+  rowCount       Int      @default(0)
+  successCount   Int      @default(0)
+  duplicateCount Int      @default(0)
+  errorCount     Int      @default(0)
+  poolId         String?
+  status         String   @default("completed")
+  mapping        Json?
+  errors         Json?
+  uploadedById   String?
+  uploadedBy     User?    @relation(fields: [uploadedById], references: [id], onDelete: SetNull)
+  createdAt      DateTime @default(now())
 }
 
 model AuditLog {
