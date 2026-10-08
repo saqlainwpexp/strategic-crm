@@ -53,7 +53,19 @@ APP_TIMEZONE="Asia/Karachi"
 
 - Replace the user, password, host and database with yours.
 - If the password contains `@ : / # ? &` or spaces, either choose a password without them, or URL-encode them (`@` → `%40`, `#` → `%23`, `:` → `%3A`, `/` → `%2F`).
-- For `NEXTAUTH_SECRET`, any long random string works (40+ characters). One way: run `node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"`.
+- For `NEXTAUTH_SECRET`, generate a long random string (don't make one up). In a terminal in the project folder run:
+
+  ```bash
+  node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
+  ```
+
+  or, in PowerShell without Node:
+
+  ```powershell
+  [Convert]::ToBase64String((1..32 | ForEach-Object { Get-Random -Maximum 256 }) -as [byte[]])
+  ```
+
+  Copy the output (about 44 characters) into `NEXTAUTH_SECRET`. Use **one secret for your PC and a different one for Hostinger**. Changing the secret later just signs everyone out.
 
 `.env` is git-ignored, so it never goes to GitHub.
 
@@ -86,16 +98,16 @@ npm run db:seed     # creates your team's accounts (and optional demo leads) —
    | --- | --- |
    | `DATABASE_URL` | Same as your `.env`, but the host is usually **`localhost`** when the app runs on Hostinger's own server. If that fails, use the host hPanel shows for the database. |
    | `NEXTAUTH_SECRET` | The same long random string |
-   | `NEXTAUTH_URL` | Your live address, e.g. `https://crm.youragency.com` |
+   | `NEXTAUTH_URL` | Your live address, e.g. `https://crm.strategiccoresolutions.com` |
    | `APP_TIMEZONE` | `Asia/Karachi` |
 
 5. Deploy. New pushes to `main` can redeploy automatically if you enable it.
 
 ## 8. Domain and SSL
 
-1. Use a subdomain such as `crm.youragency.com` (or a separate domain) for the app in hPanel.
+1. Use a subdomain such as `crm.strategiccoresolutions.com` (or a separate domain) for the app in hPanel.
 2. If the domain's DNS isn't managed by Hostinger, add the record hPanel asks for at your DNS provider.
-3. Turn on the free **SSL** certificate, then open `https://crm.youragency.com`.
+3. Turn on the free **SSL** certificate, then open `https://crm.strategiccoresolutions.com`.
 
 ## 9. After the first deploy
 
