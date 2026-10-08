@@ -41,11 +41,10 @@ Copy `.env.example` to `.env` and fill it in. **Never commit `.env`** — it's g
 | `DATABASE_URL` | MySQL connection string |
 | `NEXTAUTH_SECRET` | Long random string used to sign sessions |
 | `NEXTAUTH_URL` | The app's public URL, e.g. `https://crm.example.com` |
-| `APP_TIMEZONE` | Defaults to `Asia/Karachi` |
 
 ## White-label
 
-Everything brand-related is set by the Super Admin in **Admin → Branding**: app & agency name, logo, colour scheme (presets or custom), header style, font and display currency. Branding is currently saved to `data/branding.json` on the server (git-ignored) and will move into the database.
+Everything brand-related is set by the Super Admin in **Admin → Branding**: app & agency name, logo, colour scheme (presets or custom), header style, font, display currency and timezone (default US Eastern, DST-aware). Branding is currently saved to `data/branding.json` on the server (git-ignored) and will move into the database.
 
 ## Project layout
 

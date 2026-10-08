@@ -20,6 +20,7 @@ import {
 import { contrastRatio, hexToRgb, luminance } from "@/lib/theme";
 import { cn, compactMoney } from "@/lib/utils";
 import { CURRENCIES, type CurrencyCode } from "@/lib/currency";
+import { TIMEZONES } from "@/lib/date";
 
 const COLOR_FIELDS: { key: keyof BrandColors; label: string; hint: string }[] = [
   { key: "brand", label: "Accent", hint: "Charts, highlights, call buttons" },
@@ -186,11 +187,20 @@ export function BrandingTab() {
           )}
         </Card>
 
-        {/* Currency */}
+        {/* Region: timezone + currency */}
         <Card className="p-7">
-          <CardHeader title="Currency" subtitle="How every amount is shown — deal values, revenue, payments and invoices." />
-          <div className="grid gap-6 sm:grid-cols-[1fr_auto] sm:items-end">
-            <Field label="Display currency" hint="Amounts are stored as numbers; this changes the symbol, not the values (no conversion).">
+          <CardHeader title="Region" subtitle="The timezone every date, time, shift and reminder uses, and how amounts are shown." />
+          <div className="grid gap-6 sm:grid-cols-2">
+            <Field label="Timezone" hint={`Now ${zoneNow(draft.timezone)} there. Daylight saving is handled automatically.`}>
+              <Select value={draft.timezone} onChange={(e) => set("timezone", e.target.value)}>
+                {TIMEZONES.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.label}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+            <Field label="Display currency" hint="Changes the symbol only — amounts aren't converted.">
               <Select value={draft.currency} onChange={(e) => set("currency", e.target.value as CurrencyCode)}>
                 {CURRENCIES.map((c) => (
                   <option key={c.code} value={c.code}>
@@ -199,10 +209,10 @@ export function BrandingTab() {
                 ))}
               </Select>
             </Field>
-            <div className="rounded-2xl bg-soft px-5 py-3.5 text-[13px] text-neutral-600">
-              Example: <span className="text-ink">{compactMoney(1_250_000)}</span> · <span className="text-ink">{compactMoney(640_000)}</span>
-            </div>
           </div>
+          <p className="mt-5 rounded-2xl bg-soft px-5 py-3.5 text-[13px] text-neutral-600">
+            Example: <span className="text-ink">{compactMoney(1_250_000)}</span> · <span className="text-ink">{compactMoney(640_000)}</span>
+          </p>
         </Card>
 
         {/* Header style */}
@@ -370,4 +380,9 @@ function ColorField({ label, hint, value, onChange }: { label: string; hint: str
       />
     </div>
   );
+}
+
+/** "9:42 PM EDT" in a given timezone. */
+function zoneNow(tz: string) {
+  return new Intl.DateTimeFormat("en-US", { timeZone: tz, hour: "numeric", minute: "2-digit", timeZoneName: "short" }).format(new Date());
 }

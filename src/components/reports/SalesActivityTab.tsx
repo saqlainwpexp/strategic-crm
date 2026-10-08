@@ -17,7 +17,7 @@ import { LeadForm } from "@/components/leads/LeadForm";
 import { rangeHint, useReport, type ReportRange } from "./useReport";
 import { AGENCY_SERVICES, PAYMENT_STATUS_DOT, PAYMENT_STATUS_LABELS, SERVICE_COLORS } from "@/lib/constants";
 import type { Lead, User } from "@/lib/types";
-import { dayKey, dayLabel, formatDate, formatTime, pktISO, shiftDayKey, todayKey, weekdayOf } from "@/lib/date";
+import { tzAbbrev, weekdayDay, dayKey, dayLabel, formatDate, formatTime, zonedISO, shiftDayKey, todayKey, weekdayOf } from "@/lib/date";
 import { cn, compactMoney, formatHours, formatMoney, sum } from "@/lib/utils";
 
 const SERIES = AGENCY_SERVICES.map((s) => ({ key: s, label: s, color: SERVICE_COLORS[s] }));
@@ -250,14 +250,14 @@ function WorkingHours({ reps }: { reps: User[] }) {
     <Card className="p-0">
       <div className="px-7 pb-5 pt-6">
         <h2 className="text-[18px] font-medium tracking-[-0.01em]">Working hours</h2>
-        <p className="mt-1.5 text-[13px] text-neutral-500">Clock-in to clock-out for the last 7 working days (PKT). Darker = longer shift.</p>
+        <p className="mt-1.5 text-[13px] text-neutral-500">Clock-in to clock-out for the last 7 working days ({tzAbbrev()}). Darker = longer shift.</p>
       </div>
       <div className="overflow-x-auto px-7 pb-7">
         <div className="grid min-w-[980px] gap-2" style={{ gridTemplateColumns: `200px repeat(${days.length}, 1fr) 110px` }}>
           <span />
           {days.map((d) => (
             <span key={d} className={cn("px-2 pb-1 text-[12.5px]", d === today ? "text-ink" : "text-neutral-500")}>
-              {new Date(pktISO(d, 12)).toLocaleDateString("en-US", { weekday: "short", day: "numeric", timeZone: "Asia/Karachi" })}
+              {weekdayDay(d)}
             </span>
           ))}
           <span className="px-2 pb-1 text-right text-[12.5px] text-neutral-500">Total</span>

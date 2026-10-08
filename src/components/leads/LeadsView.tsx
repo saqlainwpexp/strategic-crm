@@ -26,7 +26,7 @@ import {
 } from "@/lib/constants";
 import type { Lead } from "@/lib/types";
 import { dialHref } from "@/lib/dial";
-import { dayKey, dayLabel, formatTime, pktISO, todayKey } from "@/lib/date";
+import { dayKey, dayLabel, formatTime, zonedISO, todayKey } from "@/lib/date";
 import { cn, compactMoney, groupBy } from "@/lib/utils";
 
 type QuickView = "all" | "hot" | "due" | "untouched" | "mine";
@@ -89,7 +89,7 @@ export function LeadsView() {
     return new Map(Object.entries(g).map(([k, v]) => [k, v.length]));
   }, [data.calls]);
 
-  const endOfToday = pktISO(todayKey(), 23, 59);
+  const endOfToday = zonedISO(todayKey(), 23, 59);
   const isHot = useCallback((l: Lead) => tempOf(l.leadScore) === "HOT" && OPEN_STAGES.includes(l.stage), [tempOf]);
   const isDue = useCallback(
     (l: Lead) => !!l.nextFollowUpAt && l.nextFollowUpAt <= endOfToday && OPEN_STAGES.includes(l.stage),

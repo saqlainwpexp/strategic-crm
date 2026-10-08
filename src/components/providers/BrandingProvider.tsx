@@ -2,6 +2,7 @@
 
 import { Fragment, createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { setCurrency } from "@/lib/currency";
+import { setTimeZone } from "@/lib/date";
 import type { Branding } from "@/lib/branding";
 import { themeVars } from "@/lib/theme";
 
@@ -37,6 +38,7 @@ export function BrandingProvider({ initial, children }: { initial: Branding; chi
   const branding = preview ?? saved;
   // Formatting helpers read this synchronously, so set it during render (server and client).
   setCurrency(branding.currency);
+  setTimeZone(branding.timezone);
   useEffect(() => {
     applyVars(branding);
   }, [branding]);
@@ -52,7 +54,7 @@ export function BrandingProvider({ initial, children }: { initial: Branding; chi
     <BrandingCtx.Provider value={value}>
       {/* Remount when the saved currency changes so memoised amounts re-format. Keyed on the
           saved value (not the live preview) so the branding editor keeps its draft while editing. */}
-      <Fragment key={saved.currency}>{children}</Fragment>
+      <Fragment key={`${saved.currency}|${saved.timezone}`}>{children}</Fragment>
     </BrandingCtx.Provider>
   );
 }

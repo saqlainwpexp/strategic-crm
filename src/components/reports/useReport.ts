@@ -7,7 +7,7 @@ import { useMemo } from "react";
 import { useCrm } from "@/components/providers/CrmProvider";
 import { AGENCY_SERVICES, CONNECT_DISPOSITIONS } from "@/lib/constants";
 import type { CallDisposition, CallLog, User } from "@/lib/types";
-import { dayKey, lastMonthKeys, minuteOfDay, monthKey, monthLabel, pktISO, shiftDayKey, todayKey, zonedParts } from "@/lib/date";
+import { weekdayShort, dayKey, lastMonthKeys, minuteOfDay, monthKey, monthLabel, zonedISO, shiftDayKey, todayKey, zonedParts } from "@/lib/date";
 import { deltaLabel, pct, sum } from "@/lib/utils";
 
 export type ReportRange = "today" | "7d" | "30d" | "mtd";
@@ -73,8 +73,8 @@ export function useReport(range: ReportRange, repId: string) {
     const nowISO = new Date().toISOString();
     const days = rangeDays(range);
     const startKey = shiftDayKey(today, -(days - 1));
-    const start = pktISO(startKey, 0);
-    const prevStart = pktISO(shiftDayKey(today, -(2 * days - 1)), 0);
+    const start = zonedISO(startKey, 0);
+    const prevStart = zonedISO(shiftDayKey(today, -(2 * days - 1)), 0);
     const shownReps = repId ? reps.filter((r) => r.id === repId) : reps;
     const repIds = new Set(shownReps.map((r) => r.id));
     const mine = (userId: string | null) => !!userId && repIds.has(userId);
@@ -104,7 +104,7 @@ export function useReport(range: ReportRange, repId: string) {
               key: k,
               label:
                 days <= 7
-                  ? new Date(pktISO(k, 12)).toLocaleDateString("en-US", { weekday: "short", timeZone: "Asia/Karachi" })
+                  ? weekdayShort(k)
                   : String(Number(k.slice(8))),
             };
           });
@@ -181,13 +181,13 @@ export function useReport(range: ReportRange, repId: string) {
     // Per day (newest first)
     const daily = Array.from({ length: days }, (_, i) => shiftDayKey(today, -i)).map((k) => {
       const dayCalls = calls.filter((c) => dayKey(c.startedAt) === k);
-      const next = pktISO(shiftDayKey(k, 1), 0);
+      const next = zonedISO(shiftDayKey(k, 1), 0);
       return {
         day: k,
         calls: dayCalls.length,
         connects: connects(dayCalls).length,
         talk: sum(dayCalls.map((c) => c.durationSec)),
-        hours: shiftSecs(pktISO(k, 0), next, repIds),
+        hours: shiftSecs(zonedISO(k, 0), next, repIds),
         meetings: meetingsOf(dayCalls),
         collected: sum(paid.filter((p) => dayKey(p.paidAt!) === k).map((p) => p.amount)),
       };

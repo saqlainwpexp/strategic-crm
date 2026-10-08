@@ -3,6 +3,7 @@ import { DM_Sans, Inter, Manrope, Plus_Jakarta_Sans } from "next/font/google";
 import "./globals.css";
 import { getBranding } from "@/lib/branding.server";
 import { themeVars } from "@/lib/theme";
+import { setTimeZone } from "@/lib/date";
 import { BrandingProvider } from "@/components/providers/BrandingProvider";
 
 // All selectable typefaces are declared; the browser only downloads the one in use.
@@ -25,6 +26,7 @@ export function generateMetadata(): Metadata {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   const branding = getBranding();
+  setTimeZone(branding.timezone);
   return (
     <html
       lang="en"

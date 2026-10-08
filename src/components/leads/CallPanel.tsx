@@ -10,7 +10,7 @@ import { ScriptText, scriptVars } from "@/components/scripts/ScriptText";
 import { DISPOSITIONS, DISPOSITION_LABELS, DISPOSITION_TO_STAGE, STAGE_LABELS } from "@/lib/constants";
 import type { CallDisposition, Lead } from "@/lib/types";
 import { dialHref } from "@/lib/dial";
-import { pktISO, shiftDayKey, todayKey, weekdayOf } from "@/lib/date";
+import { tzAbbrev, zonedISO, shiftDayKey, todayKey, weekdayOf } from "@/lib/date";
 import { cn } from "@/lib/utils";
 
 const pad = (n: number) => String(n).padStart(2, "0");
@@ -66,7 +66,7 @@ export function CallPanel({
       disposition,
       scriptId: scriptId || null,
       notes: notes.trim(),
-      followUpAt: disposition === "CALL_ME_LATER" ? pktISO(fuDate, h, m) : undefined,
+      followUpAt: disposition === "CALL_ME_LATER" ? zonedISO(fuDate, h, m) : undefined,
     });
     if (disposition === "MEETING_BOOKED") onBookMeeting();
     onDone();
@@ -165,7 +165,7 @@ export function CallPanel({
             <Field label="Call back on">
               <Input type="date" value={fuDate} onChange={(e) => setFuDate(e.target.value)} />
             </Field>
-            <Field label="At (PKT)">
+            <Field label={`At (${tzAbbrev()})`}>
               <Input type="time" value={fuTime} onChange={(e) => setFuTime(e.target.value)} />
             </Field>
           </div>

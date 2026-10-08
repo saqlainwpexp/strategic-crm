@@ -8,7 +8,7 @@ import { Field, Input, Select } from "@/components/ui/Form";
 import { Segmented } from "@/components/ui/Segmented";
 import { LeadPicker } from "./LeadPicker";
 import { AGENCY_SERVICES, type AgencyService } from "@/lib/constants";
-import { pktISO, shiftDayKey, todayKey } from "@/lib/date";
+import { zonedISO, shiftDayKey, todayKey } from "@/lib/date";
 import { formatMoney } from "@/lib/utils";
 import { currency } from "@/lib/currency";
 
@@ -61,7 +61,7 @@ export function PaymentModal({
 
   const submit = () => {
     if (!selected || amount <= 0) return;
-    const at = pktISO(date, 12);
+    const at = zonedISO(date, 12);
     addPayment({
       leadId: selected.id,
       userId: selected.assignedToId ?? viewer.id,

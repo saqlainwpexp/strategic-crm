@@ -17,7 +17,8 @@ import type {
   User,
 } from "../types";
 import { AGENCY_SERVICES, type AgencyService, type PipelineStage, type Priority } from "../constants";
-import { dayKey, pktISO, shiftDayKey, todayKey, weekdayOf, zonedParts } from "../date";
+import { appTimeZone, dayKey, setTimeZone, zonedISO, shiftDayKey, todayKey, weekdayOf, zonedParts } from "../date";
+import { getBranding } from "../branding.server";
 import { slugify } from "../utils";
 
 // ─── RNG helpers ─────────────────────────────────────────────
@@ -401,9 +402,10 @@ const CUSTOM_FIELDS: CustomFieldDef[] = [
 
 let cache: { key: string; data: CrmData } | null = null;
 
-/** Mock database for "today" (regenerated when the PKT date changes). */
+/** Mock database for "today" in the agency timezone (regenerated when the date or timezone changes). */
 export function getSeed(): CrmData {
-  const key = todayKey();
+  setTimeZone(getBranding().timezone);
+  const key = `${appTimeZone()}|${todayKey()}`;
   if (!cache || cache.key !== key) cache = { key, data: generate() };
   return cache.data;
 }
@@ -412,7 +414,7 @@ function generate(): CrmData {
   const today = todayKey();
   const nowP = zonedParts(new Date());
   const nowMin = nowP.hour * 60 + nowP.minute;
-  const at = (key: string, minute: number) => pktISO(key, Math.floor(minute / 60), minute % 60);
+  const at = (key: string, minute: number) => zonedISO(key, Math.floor(minute / 60), minute % 60);
   const nextWorkday = (key: string) => (weekdayOf(key) === 6 ? shiftDayKey(key, 1) : key);
 
   // Last 26 workdays (Mon–Sat, ~30 days), most recent first.
@@ -747,7 +749,7 @@ function generate(): CrmData {
       dialerScheme: "zoomphonecall://",
       reminderMinutes: 30,
       currency: "PKR",
-      timezone: "Asia/Karachi",
+      timezone: appTimeZone(),
     },
   };
 }

@@ -2,6 +2,7 @@
 // Shared by server (initial render) and client (live preview in Admin → Branding).
 
 import { isCurrencyCode, type CurrencyCode } from "./currency";
+import { DEFAULT_TIMEZONE, isTimeZone } from "./date";
 
 export type FontKey = "inter" | "jakarta" | "dmsans" | "manrope";
 export type HeaderStyle = "bar" | "classic";
@@ -30,6 +31,8 @@ export type Branding = {
   headerStyle: HeaderStyle;
   /** Display currency for all amounts. */
   currency: CurrencyCode;
+  /** IANA timezone for every date and time (DST-aware), e.g. "America/New_York". */
+  timezone: string;
 };
 
 export const FONTS: { key: FontKey; label: string; cssVar: string }[] = [
@@ -58,6 +61,7 @@ export const DEFAULT_BRANDING: Branding = {
   font: "inter",
   headerStyle: "bar",
   currency: "PKR",
+  timezone: DEFAULT_TIMEZONE,
 };
 
 export const MAX_LOGO_BYTES = 400 * 1024;
@@ -91,5 +95,6 @@ export function normalizeBranding(input: unknown): Branding {
     font: FONTS.some((f) => f.key === b.font) ? (b.font as FontKey) : DEFAULT_BRANDING.font,
     headerStyle: b.headerStyle === "classic" ? "classic" : "bar",
     currency: isCurrencyCode(b.currency) ? b.currency : DEFAULT_BRANDING.currency,
+    timezone: isTimeZone(b.timezone) ? b.timezone : DEFAULT_BRANDING.timezone,
   };
 }

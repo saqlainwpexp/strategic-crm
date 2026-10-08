@@ -17,7 +17,7 @@ import { SCHEDULE_ICONS } from "@/components/dashboard/UpcomingSchedule";
 import { MEETING_STATUS_DOT, MEETING_STATUS_LABELS, OPEN_STAGES } from "@/lib/constants";
 import type { Lead } from "@/lib/types";
 import { scheduleFor } from "@/lib/schedule";
-import { dayKey, formatDate, formatTime, pktISO, relativeTime, shiftDayKey, todayKey, weekKeys } from "@/lib/date";
+import { weekdayShort, dayKey, formatDate, formatTime, zonedISO, relativeTime, shiftDayKey, todayKey, weekKeys } from "@/lib/date";
 import { dialHref } from "@/lib/dial";
 import { cn, pct } from "@/lib/utils";
 
@@ -35,7 +35,7 @@ export function ScheduleView() {
 
   const stats = useMemo(() => {
     const todays = scheduleFor(data, today);
-    const startOfToday = pktISO(today, 0);
+    const startOfToday = zonedISO(today, 0);
     const monthAgo = new Date(Date.now() - 30 * 864e5).toISOString();
     const held = data.meetings.filter((m) => m.scheduledAt >= monthAgo && m.scheduledAt < now);
     const showed = held.filter((m) => m.status === "SHOWED").length;
@@ -52,7 +52,7 @@ export function ScheduleView() {
     };
   }, [data, today, now]);
 
-  const rangeLabel = `${formatDate(pktISO(days[0], 12))} – ${formatDate(pktISO(days[6], 12))}`;
+  const rangeLabel = `${formatDate(zonedISO(days[0], 12))} – ${formatDate(zonedISO(days[6], 12))}`;
 
   return (
     <div>
@@ -109,7 +109,7 @@ export function ScheduleView() {
                       </span>
                       <div>
                         <p className="text-[13.5px] font-medium">
-                          {new Date(pktISO(key, 12)).toLocaleDateString("en-US", { weekday: "short", timeZone: "Asia/Karachi" })}
+                          {weekdayShort(key)}
                         </p>
                         <p className="text-[11.5px] text-neutral-500">{entries.length ? `${entries.length} item${entries.length > 1 ? "s" : ""}` : "Free"}</p>
                       </div>

@@ -48,7 +48,6 @@ In the project folder (next to `package.json`), create a file named `.env`:
 DATABASE_URL="mysql://u123456789_crm_app:YOUR_PASSWORD@REMOTE_HOST:3306/u123456789_crm"
 NEXTAUTH_SECRET="paste-a-long-random-string-here"
 NEXTAUTH_URL="http://localhost:3000"
-APP_TIMEZONE="Asia/Karachi"
 ```
 
 - Replace the user, password, host and database with yours.
@@ -99,7 +98,6 @@ npm run db:seed     # creates your team's accounts (and optional demo leads) —
    | `DATABASE_URL` | Same as your `.env`, but the host is usually **`localhost`** when the app runs on Hostinger's own server. If that fails, use the host hPanel shows for the database. |
    | `NEXTAUTH_SECRET` | The same long random string |
    | `NEXTAUTH_URL` | Your live address, e.g. `https://crm.strategiccoresolutions.com` |
-   | `APP_TIMEZONE` | `Asia/Karachi` |
 
 5. Deploy. New pushes to `main` can redeploy automatically if you enable it.
 
@@ -111,7 +109,7 @@ npm run db:seed     # creates your team's accounts (and optional demo leads) —
 
 ## 9. After the first deploy
 
-- Sign in as the Super Admin and open **Admin → Branding**: upload the logo again and choose colours and currency (branding saved on your PC doesn't travel with the code).
+- Sign in as the Super Admin and open **Admin → Branding**: upload the logo again and check colours, currency and timezone (default **US Eastern**) — branding saved on your PC doesn't travel with the code.
 - Check **Admin → Settings**: dialer (Zoom Phone), lead temperature thresholds and reminder timing.
 - Ask each rep to open the Loadboard and **turn on desktop alerts** for reminders.
 

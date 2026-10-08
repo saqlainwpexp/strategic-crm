@@ -8,7 +8,7 @@ import { Field, Input, Select, Textarea } from "@/components/ui/Form";
 import { LeadPicker } from "./LeadPicker";
 import { MEETING_TYPE_LABELS } from "@/lib/constants";
 import type { MeetingType } from "@/lib/types";
-import { pktISO, shiftDayKey, todayKey, weekdayOf } from "@/lib/date";
+import { tzAbbrev, zonedISO, shiftDayKey, todayKey, weekdayOf } from "@/lib/date";
 
 function defaultDay() {
   const tomorrow = shiftDayKey(todayKey(), 1);
@@ -65,7 +65,7 @@ export function MeetingModal({
       userId: owner,
       title: MEETING_TYPE_LABELS[type],
       type,
-      scheduledAt: pktISO(date, h, m),
+      scheduledAt: zonedISO(date, h, m),
       durationMin: Number(duration),
       status: "BOOKED",
       notes,
@@ -113,7 +113,7 @@ export function MeetingModal({
               ))}
             </Select>
           </Field>
-          <Field label="Date" hint="Pakistan time (PKT)">
+          <Field label="Date" hint={`Agency time (${tzAbbrev()})`}>
             <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
           </Field>
           <Field label="Time">

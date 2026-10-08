@@ -19,6 +19,7 @@ import { DIALER_OPTIONS } from "@/lib/dial";
 import { formatDateTime } from "@/lib/date";
 import { cn } from "@/lib/utils";
 import { currency } from "@/lib/currency";
+import { TIMEZONES, appTimeZone, tzAbbrev } from "@/lib/date";
 
 type Tab = "branding" | "fields" | "pools" | "imports" | "settings";
 const FIELD_TYPES: { value: CustomFieldType; label: string }[] = [
@@ -499,7 +500,7 @@ function SettingsTab() {
         <CardHeader title="Region" subtitle="Applied to every date, time and amount." />
         <div className="grid gap-6 sm:grid-cols-2">
           <Field label="Timezone">
-            <Input value={`${data.settings.timezone} (PKT, UTC+5)`} disabled />
+            <Input value={`${TIMEZONES.find((t) => t.id === appTimeZone())?.label ?? appTimeZone()} · now ${tzAbbrev()} (change in Branding)`} disabled />
           </Field>
           <Field label="Currency">
             <Input value={`${currency().code} — ${currency().name} (change in Branding)`} disabled />
