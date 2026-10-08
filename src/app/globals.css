@@ -1,0 +1,113 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Theme variables. The real values are injected on <html> from the saved branding
+   (src/lib/theme.ts); these are only fallbacks (Strategic defaults). --font-sans is also
+   set there — don't redefine it here. */
+:root {
+  --brand-50: 253 243 238;
+  --brand-100: 251 232 223;
+  --brand-200: 247 207 188;
+  --brand-300: 242 185 158;
+  --brand-400: 237 160 124;
+  --brand-500: 234 139 94;
+  --brand-600: 206 122 83;
+  --brand-700: 173 103 70;
+  --brand-800: 136 81 55;
+  --brand-900: 94 56 38;
+  --brand-fg: 255 255 255;
+  --ink: 10 10 10;
+  --ink-soft: 30 30 30;
+  --ink-muted: 49 49 49;
+  --page: 242 242 242;
+  --soft: 247 247 247;
+  --header: 10 10 10;
+  --header-fg: 255 255 255;
+  --header-cta: 255 255 255;
+  --header-cta-fg: 10 10 10;
+}
+
+html,
+body {
+  background-color: rgb(var(--page));
+  color: rgb(var(--ink));
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Thin, subtle scrollbars */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-thumb {
+  background: rgb(var(--ink) / 0.15);
+  border-radius: 999px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* Scroll areas inside cards: invisible scrollbar until hovered */
+.scroll-slim {
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+.scroll-slim:hover {
+  scrollbar-color: rgba(10, 10, 10, 0.18) transparent;
+}
+.scroll-slim::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+.scroll-slim::-webkit-scrollbar-thumb {
+  background: transparent;
+}
+.scroll-slim:hover::-webkit-scrollbar-thumb {
+  background: rgba(10, 10, 10, 0.18);
+}
+
+@layer components {
+  .card {
+    @apply rounded-[20px] bg-white;
+  }
+}
+
+@keyframes slide-in-right {
+  from {
+    transform: translateX(24px);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes pop-in {
+  from {
+    transform: translateY(8px) scale(0.98);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0) scale(1);
+    opacity: 1;
+  }
+}
+.animate-slide-in {
+  animation: slide-in-right 0.22s ease-out;
+}
+.animate-fade-in {
+  animation: fade-in 0.18s ease-out;
+}
+.animate-pop-in {
+  animation: pop-in 0.2s ease-out;
+}

@@ -1,0 +1,299 @@
+// Strategic CRM — Prisma schema (MySQL / Hostinger)
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────── Enums ───────────────────────────
+
+enum Role {
+  SALES
+  BD
+  MANAGER
+  SUPER_ADMIN
+}
+
+enum PipelineStage {
+  LEAD
+  CONTACTED
+  INTERESTED
+  MEETING_BOOKED
+  SHOWED
+  NO_SHOW
+  NOT_INTERESTED
+  HUNG_UP
+  CALL_ME_LATER
+  CLOSED_WON // Signed Up Client
+}
+
+enum LeadPriority {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+enum MeetingType {
+  DISCOVERY
+  FOLLOW_UP
+  PROPOSAL
+  ONBOARDING
+}
+
+enum CallDisposition {
+  CONNECTED
+  NO_ANSWER
+  VOICEMAIL
+  BUSY
+  WRONG_NUMBER
+  INTERESTED
+  NOT_INTERESTED
+  CALL_ME_LATER
+  MEETING_BOOKED
+  HUNG_UP
+}
+
+enum MeetingStatus {
+  BOOKED
+  SHOWED
+  NO_SHOW
+  CANCELLED
+}
+
+enum PaymentStatus {
+  PENDING
+  PARTIAL
+  PAID
+  REFUNDED
+}
+
+enum CustomFieldType {
+  TEXT
+  NUMBER
+  DATE
+  SELECT
+  BOOLEAN
+  URL
+}
+
+// ─────────────────────────── Core ────────────────────────────
+
+model User {
+  id           String   @id @default(cuid())
+  name         String
+  email        String   @unique
+  passwordHash String
+  role         Role     @default(SALES)
+  active       Boolean  @default(true)
+  timezone     String   @default("Asia/Karachi")
+  avatarUrl    String?
+
+  // Hierarchy: Sales -> BD -> Manager
+  reportsToId  String?
+  reportsTo    User?    @relation("Reports", fields: [reportsToId], references: [id], onDelete: SetNull)
+  reports      User[]   @relation("Reports")
+
+  leads        Lead[]       @relation("AssignedLeads")
+  calls        CallLog[]
+  meetings     Meeting[]
+  payments     Payment[]
+  timeLogs     TimeLog[]
+  uploads      CsvImport[]
+  auditLogs    AuditLog[]
+  scripts      Script[]
+
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([reportsToId])
+  @@index([role])
+}
+
+model Pool {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  notes     String?  @db.Text
+  leads     Lead[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Lead {
+  id                 String          @id @default(cuid())
+  businessName       String
+  address            String?         @db.Text
+  website            String?
+  issues             String?         @db.Text
+  suggestedServices  String?         @db.Text
+  phone              String?
+  email              String?
+  priority           LeadPriority    @default(MEDIUM)
+  source             String?
+  decisionMakerName  String?
+  city               String?
+  leadScore          Int             @default(0) // 0-100; Cold/Warm/Hot is derived using Setting thresholds
+  stage              PipelineStage   @default(LEAD)
+  service            String          @default("Web Design") // Web Design / Graphic Design / GHL
+  estimatedValue     Decimal         @default(0) @db.Decimal(12, 2)
+  notes              String?         @db.Text
+  customFields       Json? // admin-defined extra fields, keyed by CustomFieldDef.key
+
+  assignedToId       String?
+  assignedTo         User?           @relation("AssignedLeads", fields: [assignedToId], references: [id], onDelete: SetNull)
+
+  poolId             String?
+  pool               Pool?           @relation(fields: [poolId], references: [id], onDelete: SetNull)
+
+  calls              CallLog[]
+  meetings           Meeting[]
+  payments           Payment[]
+
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
+  lastContactedAt    DateTime?
+  nextFollowUpAt     DateTime?
+  closedAt           DateTime? // when the lead became a signed client
+
+  @@index([assignedToId])
+  @@index([poolId])
+  @@index([stage])
+  @@index([leadScore])
+  @@index([priority])
+  @@index([nextFollowUpAt])
+  @@index([phone])
+  @@index([email])
+}
+
+model CallLog {
+  id          String          @id @default(cuid())
+  leadId      String
+  lead        Lead            @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  startedAt   DateTime        @default(now())
+  endedAt     DateTime?
+  durationSec Int             @default(0)
+  disposition CallDisposition?
+  scriptId    String?
+  script      Script?         @relation(fields: [scriptId], references: [id], onDelete: SetNull)
+  notes       String?         @db.Text
+  createdAt   DateTime        @default(now())
+
+  @@index([leadId])
+  @@index([userId])
+  @@index([startedAt])
+}
+
+model Script {
+  id        String    @id @default(cuid())
+  title     String
+  category  String?
+  body      String    @db.Text
+  active    Boolean   @default(true)
+  createdById String?
+  createdBy   User?   @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  calls     CallLog[]
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+}
+
+model Meeting {
+  id          String        @id @default(cuid())
+  leadId      String
+  lead        Lead          @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title       String
+  type        MeetingType   @default(DISCOVERY)
+  scheduledAt DateTime
+  durationMin Int           @default(30)
+  status      MeetingStatus @default(BOOKED)
+  notes       String?       @db.Text
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  @@index([userId])
+  @@index([leadId])
+  @@index([scheduledAt])
+}
+
+model Payment {
+  id        String        @id @default(cuid())
+  invoiceNo String        @unique
+  leadId    String
+  lead      Lead          @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  service   String // Web Design / Graphic Design / GHL
+  amount    Decimal       @db.Decimal(12, 2)
+  currency  String        @default("PKR")
+  status    PaymentStatus @default(PENDING)
+  dueDate   DateTime
+  paidAt    DateTime?
+  createdAt DateTime      @default(now())
+
+  @@index([userId])
+  @@index([leadId])
+  @@index([status])
+}
+
+model TimeLog {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  clockIn   DateTime  @default(now())
+  clockOut  DateTime?
+  durationSec Int     @default(0)
+
+  @@index([userId])
+  @@index([clockIn])
+}
+
+model CustomFieldDef {
+  id        String          @id @default(cuid())
+  name      String // display label
+  key       String          @unique // machine key used in Lead.customFields
+  type      CustomFieldType @default(TEXT)
+  options   Json? // for SELECT
+  required  Boolean         @default(false)
+  order     Int             @default(0)
+  active    Boolean         @default(true)
+  createdAt DateTime        @default(now())
+}
+
+model CsvImport {
+  id           String   @id @default(cuid())
+  fileName     String
+  rowCount     Int      @default(0)
+  successCount Int      @default(0)
+  errorCount   Int      @default(0)
+  status       String   @default("completed")
+  mapping      Json?
+  errors       Json?
+  uploadedById String?
+  uploadedBy   User?    @relation(fields: [uploadedById], references: [id], onDelete: SetNull)
+  createdAt    DateTime @default(now())
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  userId     String?
+  user       User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  action     String
+  entityType String?
+  entityId   String?
+  meta       Json?
+  createdAt  DateTime @default(now())
+
+  @@index([userId])
+  @@index([createdAt])
+}
+
+model Setting {
+  key       String   @id
+  value     Json
+  updatedAt DateTime @updatedAt
+}
