@@ -16,6 +16,8 @@ export function permissionsFor(role: Role) {
     importLeads: manager,
     assignLeads: role !== "SALES",
     editScripts: manager,
+    /** Email marketing (campaigns, automations, inbox, sending accounts). */
+    emailMarketing: manager,
     /** Super Admin only: branding, custom fields, pools, settings. */
     admin: role === "SUPER_ADMIN",
   };

@@ -110,6 +110,7 @@ model User {
   uploads   CsvImport[]
   auditLogs AuditLog[]
   scripts   Script[]
+  campaigns Campaign[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -156,6 +157,16 @@ model Lead {
   calls    CallLog[]
   meetings Meeting[]
   payments Payment[]
+
+  // Email marketing — leads double as email contacts.
+  tags           Json? // string[] used to group contacts for campaigns and automations
+  emailOptOut    Boolean                @default(false) // unsubscribed: never sent marketing email again
+  unsubscribedAt DateTime?
+  emailBouncedAt DateTime?
+  lastEmailedAt  DateTime?
+  emailSends     EmailSend[]
+  enrollments    AutomationEnrollment[]
+  inboxThreads   InboxThread[]
 
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
@@ -304,4 +315,234 @@ model Setting {
   key       String   @id
   value     Json
   updatedAt DateTime @updatedAt
+}
+
+// ─────────────────────── Email marketing ──────────────────────
+
+enum EmailAccountStatus {
+  PENDING
+  CONNECTED
+  ERROR
+  DISCONNECTED
+}
+
+enum CampaignStatus {
+  DRAFT
+  SCHEDULED
+  SENDING
+  PAUSED
+  SENT
+  CANCELLED
+}
+
+enum SendStatus {
+  QUEUED
+  SENDING
+  SENT
+  FAILED
+  SKIPPED
+}
+
+enum AutomationStatus {
+  DRAFT
+  ACTIVE
+  PAUSED
+}
+
+enum EnrollmentStatus {
+  ACTIVE
+  COMPLETED
+  STOPPED
+}
+
+enum MessageDirection {
+  IN
+  OUT
+}
+
+/// A mailbox we send from (SMTP) and read replies from (IMAP). The password is AES-GCM encrypted.
+model EmailAccount {
+  id          String             @id @default(cuid())
+  name        String
+  email       String             @unique
+  fromName    String
+  provider    String             @default("Custom")
+  smtpHost    String
+  smtpPort    Int                @default(465)
+  smtpSecure  Boolean            @default(true)
+  smtpUser    String
+  passwordEnc String             @db.Text
+  imapEnabled Boolean            @default(true)
+  imapHost    String             @default("")
+  imapPort    Int                @default(993)
+  imapSecure  Boolean            @default(true)
+  dailyLimit  Int                @default(150)
+  minDelaySec Int                @default(60) // gap between two sends from this mailbox
+  signature   String             @default("") @db.Text
+  status      EmailAccountStatus @default(PENDING)
+  lastError   String?            @db.Text
+  sentToday   Int                @default(0)
+  sentDay     String             @default("") // YYYY-MM-DD the counter belongs to
+  lastSentAt  DateTime?
+  lastSyncAt  DateTime?
+  lastUid     Int                @default(0) // highest IMAP UID already imported
+  uidValidity String?
+  sends       EmailSend[]
+  threads     InboxThread[]
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+}
+
+model EmailDomain {
+  id            String    @id @default(cuid())
+  domain        String    @unique
+  spfStatus     String    @default("pending")
+  dkimStatus    String    @default("pending")
+  dmarcStatus   String    @default("pending")
+  details       Json?
+  lastCheckedAt DateTime?
+  createdAt     DateTime  @default(now())
+}
+
+model EmailTemplate {
+  id        String   @id @default(cuid())
+  name      String
+  subject   String   @default("")
+  html      String   @db.MediumText
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Campaign {
+  id             String         @id @default(cuid())
+  name           String
+  subject        String         @default("")
+  previewText    String         @default("")
+  html           String         @db.MediumText
+  fromName       String         @default("")
+  replyTo        String         @default("")
+  accountIds     Json // string[] — sends rotate across these mailboxes
+  audience       Json // AudienceFilter (see src/lib/email.ts)
+  trackOpens     Boolean        @default(true)
+  trackClicks    Boolean        @default(true)
+  addUnsubscribe Boolean        @default(true)
+  status         CampaignStatus @default(DRAFT)
+  scheduledAt    DateTime?
+  startedAt      DateTime?
+  finishedAt     DateTime?
+  recipientCount Int            @default(0)
+  createdById    String?
+  createdBy      User?          @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  sends          EmailSend[]
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  @@index([status])
+}
+
+/// One outgoing email (a campaign recipient or an automation step) and what happened to it.
+model EmailSend {
+  id           String        @id @default(cuid())
+  campaignId   String?
+  campaign     Campaign?     @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  automationId String?
+  automation   Automation?   @relation(fields: [automationId], references: [id], onDelete: Cascade)
+  stepIndex    Int?
+  leadId       String?
+  lead         Lead?         @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  email        String
+  accountId    String?
+  account      EmailAccount? @relation(fields: [accountId], references: [id], onDelete: SetNull)
+  status       SendStatus    @default(QUEUED)
+  subject      String        @default("") @db.VarChar(500)
+  messageId    String?       @db.VarChar(255)
+  error        String?       @db.Text
+  claimedAt    DateTime?
+  queuedAt     DateTime      @default(now())
+  sentAt       DateTime?
+  openedAt     DateTime?
+  openCount    Int           @default(0)
+  clickedAt    DateTime?
+  clickCount   Int           @default(0)
+  repliedAt    DateTime?
+  bouncedAt    DateTime?
+
+  @@unique([campaignId, leadId])
+  @@index([status, queuedAt])
+  @@index([leadId])
+  @@index([automationId])
+  @@index([sentAt])
+  @@index([messageId])
+}
+
+model Automation {
+  id           String                 @id @default(cuid())
+  name         String
+  trigger      String                 @default("MANUAL") // MANUAL | LEAD_CREATED | STAGE_CHANGED | TAG_ADDED
+  triggerValue String                 @default("")
+  steps        Json // AutomationStep[] (see src/lib/email.ts)
+  accountIds   Json // string[]
+  stopOnReply  Boolean                @default(true)
+  status       AutomationStatus       @default(DRAFT)
+  enrollments  AutomationEnrollment[]
+  sends        EmailSend[]
+  createdAt    DateTime               @default(now())
+  updatedAt    DateTime               @updatedAt
+}
+
+model AutomationEnrollment {
+  id           String           @id @default(cuid())
+  automationId String
+  automation   Automation       @relation(fields: [automationId], references: [id], onDelete: Cascade)
+  leadId       String
+  lead         Lead             @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  stepIndex    Int              @default(0)
+  nextRunAt    DateTime?
+  status       EnrollmentStatus @default(ACTIVE)
+  stopReason   String?
+  enrolledAt   DateTime         @default(now())
+  finishedAt   DateTime?
+
+  @@unique([automationId, leadId])
+  @@index([status, nextRunAt])
+}
+
+model InboxThread {
+  id            String         @id @default(cuid())
+  accountId     String
+  account       EmailAccount   @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  leadId        String?
+  lead          Lead?          @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  subject       String         @db.VarChar(500)
+  contactEmail  String
+  contactName   String         @default("")
+  unread        Boolean        @default(true)
+  archived      Boolean        @default(false)
+  lastMessageAt DateTime
+  messages      InboxMessage[]
+  createdAt     DateTime       @default(now())
+
+  @@index([accountId, lastMessageAt])
+  @@index([contactEmail])
+}
+
+model InboxMessage {
+  id         String           @id @default(cuid())
+  threadId   String
+  thread     InboxThread      @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  accountId  String
+  messageId  String           @db.VarChar(255)
+  inReplyTo  String?          @db.VarChar(255)
+  references String?          @db.Text
+  direction  MessageDirection
+  fromEmail  String
+  fromName   String           @default("")
+  toEmail    String           @default("")
+  subject    String           @db.VarChar(500)
+  text       String           @db.MediumText
+  sentAt     DateTime
+  createdAt  DateTime         @default(now())
+
+  @@unique([accountId, messageId])
+  @@index([threadId, sentAt])
 }

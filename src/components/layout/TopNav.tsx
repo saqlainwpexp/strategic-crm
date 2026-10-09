@@ -2,27 +2,33 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { signOut } from "next-auth/react";
 import {
   ArrowRight,
+  AtSign,
   Bell,
   BellRing,
   CalendarDays,
   CalendarPlus,
-  ChartColumn,
   Check,
   ChevronDown,
   Clock,
+  Contact,
   KeyRound,
   LogOut,
   Columns3,
   FileText,
+  Inbox,
   LayoutGrid,
+  LayoutTemplate,
   ListOrdered,
+  Mail,
+  MailPlus,
   Moon,
   PhoneCall,
   Search,
+  Send,
   Settings2,
   Sun,
   Upload,
@@ -30,10 +36,22 @@ import {
   Users,
   UsersRound,
   Wallet,
+  Workflow,
   type LucideIcon,
 } from "lucide-react";
 import { cn, formatHours } from "@/lib/utils";
-import { HOME_PATH, NAV_ITEMS, navFor, type NavKey } from "@/lib/nav";
+import {
+  EMAIL_HOME,
+  EMAIL_NAV,
+  EMAIL_NAV_ORDER,
+  HOME_PATH,
+  NAV_ITEMS,
+  modeFor,
+  navFor,
+  type AppMode,
+  type EmailNavKey,
+  type NavKey,
+} from "@/lib/nav";
 import { ROLE_LABELS } from "@/lib/constants";
 import { dayKey, formatTime, relativeTime, todayKey } from "@/lib/date";
 import { upcomingFor } from "@/lib/queue";
@@ -57,11 +75,61 @@ const NAV_ICONS: Record<NavKey, LucideIcon> = {
   admin: Settings2,
 };
 
+const EMAIL_ICONS: Record<EmailNavKey, LucideIcon> = {
+  overview: LayoutGrid,
+  campaigns: Send,
+  automations: Workflow,
+  inbox: Inbox,
+  contacts: Contact,
+  templates: LayoutTemplate,
+  sending: AtSign,
+};
+
 /** Header stays pinned while the page scrolls; content slides under a frosted page-coloured backdrop. */
 const STICKY = "sticky top-0 z-40 bg-page/85 backdrop-blur-md";
 
 type Variant = "bar" | "classic";
-type Menu = null | "pages" | "more" | "search" | "bell" | "user" | "create";
+type Menu = null | "pages" | "more" | "search" | "bell" | "user" | "create" | "apps";
+
+/** Unread email replies, shown on the Inbox tab and in the bell (managers only). */
+const UnreadReplies = createContext(0);
+
+type NavEntry = { key: string; label: string; href: string; icon: LucideIcon; exact?: boolean; badge?: number };
+
+function useNav() {
+  const pathname = usePathname();
+  const { viewer, perms } = useCrm();
+  const unread = useContext(UnreadReplies);
+  const mode: AppMode = perms.emailMarketing ? modeFor(pathname) : "calling";
+  let primary: NavEntry[];
+  let more: NavEntry[];
+  if (mode === "email") {
+    const entry = (k: EmailNavKey): NavEntry => ({ key: k, ...EMAIL_NAV[k], icon: EMAIL_ICONS[k], badge: k === "inbox" ? unread : undefined });
+    primary = EMAIL_NAV_ORDER.primary.map(entry);
+    more = EMAIL_NAV_ORDER.more.map(entry);
+  } else {
+    const { primary: p, more: m } = navFor(viewer.role);
+    const entry = (k: NavKey): NavEntry => ({ key: k, ...NAV_ITEMS[k], icon: NAV_ICONS[k] });
+    primary = p.map(entry);
+    more = m.map(entry);
+  }
+  const isActive = (e: NavEntry) => (e.exact ? pathname === e.href : pathname === e.href || pathname.startsWith(`${e.href}/`));
+  return { mode, home: mode === "email" ? EMAIL_HOME : HOME_PATH, primary, more, isActive, canSwitch: perms.emailMarketing };
+}
+
+function CountBadge({ n, onDark }: { n?: number; onDark?: boolean }) {
+  if (!n) return null;
+  return (
+    <span
+      className={cn(
+        "grid h-[18px] min-w-[18px] place-items-center rounded-full px-1 text-[10.5px] font-semibold tabular-nums leading-none",
+        onDark ? "bg-brand text-brand-fg" : "bg-brand text-brand-fg"
+      )}
+    >
+      {n > 99 ? "99+" : n}
+    </span>
+  );
+}
 
 const panel =
   "animate-pop-in absolute top-[calc(100%+12px)] z-40 rounded-[20px] bg-white p-2 text-ink shadow-[0_24px_64px_-12px_rgba(10,10,10,0.25),0_0_0_1px_rgba(10,10,10,0.05)]";
@@ -93,9 +161,93 @@ function useMenus() {
   };
 }
 
-export function TopNav() {
+export function TopNav({ unreadReplies = 0 }: { unreadReplies?: number }) {
   const { branding } = useBranding();
-  return branding.headerStyle === "classic" ? <ClassicHeader /> : <BarHeader />;
+  return (
+    <UnreadReplies.Provider value={unreadReplies}>
+      {branding.headerStyle === "classic" ? <ClassicHeader /> : <BarHeader />}
+    </UnreadReplies.Provider>
+  );
+}
+
+// ─── App switcher (logo) ─────────────────────────────────────
+
+const APPS: { mode: AppMode; label: string; hint: string; href: string; icon: LucideIcon }[] = [
+  { mode: "calling", label: "Cold Calling CRM", hint: "Loadboard, leads, pipeline & team", href: HOME_PATH, icon: PhoneCall },
+  { mode: "email", label: "Email Marketing", hint: "Campaigns, automations & inbox", href: EMAIL_HOME, icon: Mail },
+];
+
+function AppSwitcher({ variant, open, onToggle, onClose }: { variant: Variant; open: boolean; onToggle: () => void; onClose: () => void }) {
+  const { branding } = useBranding();
+  const { mode, home, canSwitch } = useNav();
+  const ref = useDismiss(open, onClose);
+  const current = APPS.find((a) => a.mode === mode)!;
+
+  const mark =
+    variant === "bar" ? (
+      <>
+        <span className={cn(tile, "w-11 justify-center px-0", open && "bg-header-fg/[0.22]")}>
+          <BrandMark className="h-6 w-6 text-header-fg" imgClassName="h-6 max-w-[30px]" />
+        </span>
+        {branding.showNameInHeader && (
+          <span className="hidden min-w-0 flex-col leading-tight sm:flex">
+            <span className="text-[16px] font-semibold tracking-[-0.01em]">{branding.appName}</span>
+            {canSwitch && <span className="text-[11.5px] font-medium text-header-fg/60">{mode === "email" ? "Email Marketing" : "Cold Calling"}</span>}
+          </span>
+        )}
+      </>
+    ) : (
+      <Logo />
+    );
+
+  if (!canSwitch) {
+    return (
+      <Link href={home} className="flex shrink-0 items-center gap-3 pr-1" aria-label={`${branding.appName} home`}>
+        {mark}
+      </Link>
+    );
+  }
+
+  return (
+    <div ref={ref} className="relative shrink-0">
+      <button
+        onClick={onToggle}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-label={`Switch app — currently ${current.label}`}
+        className={cn("flex items-center gap-3 rounded-[14px] pr-1 text-left", variant === "classic" && "gap-2")}
+      >
+        {mark}
+        <ChevronDown className={cn("h-4 w-4 shrink-0 opacity-70 transition-transform", open && "rotate-180", variant === "bar" ? "text-header-fg" : "text-neutral-500")} />
+      </button>
+      {open && (
+        <div className={cn(panel, "left-0 w-[min(320px,calc(100vw-48px))] p-2.5")} role="menu">
+          <p className="px-3 pb-2 pt-1.5 text-[11.5px] uppercase tracking-[0.06em] text-neutral-400">Switch to</p>
+          {APPS.map((a) => {
+            const active = a.mode === mode;
+            return (
+              <Link
+                key={a.mode}
+                href={a.href}
+                role="menuitem"
+                onClick={onClose}
+                className={cn("flex items-center gap-3.5 rounded-2xl px-3 py-3 transition-colors", active ? "bg-page" : "hover:bg-page")}
+              >
+                <span className={cn("grid h-11 w-11 shrink-0 place-items-center rounded-[14px]", active ? "bg-ink text-white" : "bg-soft text-ink")}>
+                  <a.icon className="h-5 w-5" strokeWidth={1.8} />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-[14.5px] font-medium">{a.label}</span>
+                  <span className="mt-0.5 block text-[12.5px] text-neutral-500">{a.hint}</span>
+                </span>
+                {active && <Check className="h-4 w-4 shrink-0 text-ink" strokeWidth={2.2} />}
+              </Link>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
 }
 
 // ─── Bar header (white-label default) ────────────────────────
@@ -105,21 +257,14 @@ const tile =
   "inline-flex h-11 shrink-0 items-center gap-2 rounded-[14px] bg-header-fg/[0.12] px-4 text-[15px] font-medium text-header-fg transition-colors hover:bg-header-fg/[0.2]";
 
 function BarHeader() {
-  const { branding } = useBranding();
   const { open, close, toggle } = useMenus();
+  const { mode } = useNav();
 
   return (
     <header className={STICKY}>
       <div className="mx-auto max-w-[1440px] px-6 pb-3 pt-5 lg:px-10">
       <div className="flex h-[68px] items-center gap-2 rounded-[22px] bg-header px-3 text-header-fg shadow-[inset_0_0_0_1px_rgb(255_255_255/0.07),0_1px_2px_rgba(10,10,10,0.08)]">
-        <Link href={HOME_PATH} className="flex shrink-0 items-center gap-3 pr-1" aria-label={`${branding.appName} home`}>
-          <span className={cn(tile, "w-11 justify-center px-0")}>
-            <BrandMark className="h-6 w-6 text-header-fg" imgClassName="h-6 max-w-[30px]" />
-          </span>
-          {branding.showNameInHeader && (
-            <span className="hidden text-[16px] font-semibold tracking-[-0.01em] sm:inline">{branding.appName}</span>
-          )}
-        </Link>
+        <AppSwitcher variant="bar" open={open === "apps"} onToggle={() => toggle("apps")} onClose={close} />
 
         <BarNav open={open === "more"} onToggle={() => toggle("more")} onClose={close} />
         <div className="xl:hidden">
@@ -127,10 +272,17 @@ function BarHeader() {
         </div>
         <span className="mx-1.5 hidden h-6 w-px bg-header-fg/25 xl:block" />
         <SearchButton variant="bar" open={open === "search"} onToggle={() => toggle("search")} onClose={close} />
-        <Link href="/leads?new=1" className={cn(tile, "hidden md:inline-flex")}>
-          <UserPlus className="h-[18px] w-[18px]" strokeWidth={1.8} />
-          <span className="hidden 2xl:inline">Add lead</span>
-        </Link>
+        {mode === "email" ? (
+          <Link href="/email/campaigns/new" className={cn(tile, "hidden md:inline-flex")}>
+            <MailPlus className="h-[18px] w-[18px]" strokeWidth={1.8} />
+            <span className="hidden 2xl:inline">New campaign</span>
+          </Link>
+        ) : (
+          <Link href="/leads?new=1" className={cn(tile, "hidden md:inline-flex")}>
+            <UserPlus className="h-[18px] w-[18px]" strokeWidth={1.8} />
+            <span className="hidden 2xl:inline">Add lead</span>
+          </Link>
+        )}
         <span className="mx-1.5 hidden h-6 w-px bg-header-fg/25 md:block" />
         <BellButton variant="bar" open={open === "bell"} onToggle={() => toggle("bell")} onClose={close} />
 
@@ -146,24 +298,21 @@ function BarHeader() {
 
 /** Classic-style tabs inside the bar: active page is a solid pill, the rest plain text. */
 function BarNav({ open, onToggle, onClose }: { open: boolean; onToggle: () => void; onClose: () => void }) {
-  const pathname = usePathname();
-  const { viewer } = useCrm();
   const ref = useDismiss(open, onClose);
-  const { primary, more } = navFor(viewer.role);
-  const isActive = (k: NavKey) => pathname.startsWith(NAV_ITEMS[k].href);
+  const { primary, more, isActive } = useNav();
   const link = "flex h-10 shrink-0 items-center gap-2 rounded-[12px] px-3.5 text-[14px] font-medium transition-colors";
   const on = "bg-header-fg text-header";
   const off = "text-header-fg/75 hover:bg-header-fg/[0.12] hover:text-header-fg";
 
   return (
     <nav className="ml-1 hidden items-center gap-0.5 xl:flex" aria-label="Main">
-      {primary.map((k) => {
-        const Icon = NAV_ICONS[k];
-        const active = isActive(k);
+      {primary.map((e) => {
+        const active = isActive(e);
         return (
-          <Link key={k} href={NAV_ITEMS[k].href} className={cn(link, active ? on : off)} aria-current={active ? "page" : undefined}>
-            {active && <Icon className="h-4 w-4" strokeWidth={2} />}
-            {NAV_ITEMS[k].label}
+          <Link key={e.key} href={e.href} className={cn(link, active ? on : off)} aria-current={active ? "page" : undefined}>
+            {active && <e.icon className="h-4 w-4" strokeWidth={2} />}
+            {e.label}
+            <CountBadge n={e.badge} />
           </Link>
         );
       })}
@@ -175,8 +324,8 @@ function BarNav({ open, onToggle, onClose }: { open: boolean; onToggle: () => vo
           </button>
           {open && (
             <div className={cn(panel, "left-0 w-[220px]")} role="menu">
-              {more.map((k) => (
-                <MenuLink key={k} k={k} active={isActive(k)} />
+              {more.map((e) => (
+                <MenuLink key={e.key} entry={e} active={isActive(e)} />
               ))}
             </div>
           )}
@@ -187,27 +336,24 @@ function BarNav({ open, onToggle, onClose }: { open: boolean; onToggle: () => vo
 }
 
 function PageSwitcher({ open, onToggle, onClose }: { open: boolean; onToggle: () => void; onClose: () => void }) {
-  const pathname = usePathname();
-  const { viewer } = useCrm();
   const ref = useDismiss(open, onClose);
-  const { primary, more } = navFor(viewer.role);
+  const { primary, more, isActive } = useNav();
   const all = [...primary, ...more];
-  const current = all.find((k) => pathname.startsWith(NAV_ITEMS[k].href)) ?? "dashboard";
-  const Icon = NAV_ICONS[current];
+  const current = all.find(isActive) ?? all[0];
 
   return (
     <div ref={ref} className="relative">
       <button onClick={onToggle} className={cn(tile, open && "bg-header-fg/[0.22]")} aria-haspopup="menu" aria-expanded={open}>
-        <Icon className="h-[18px] w-[18px]" strokeWidth={1.8} />
-        {NAV_ITEMS[current].label}
+        <current.icon className="h-[18px] w-[18px]" strokeWidth={1.8} />
+        {current.label}
         <ChevronDown className={cn("h-4 w-4 opacity-80 transition-transform", open && "rotate-180")} />
       </button>
       {open && (
         <div className={cn(panel, "left-0 w-[280px] p-2.5")} role="menu">
           <p className="px-3 pb-2 pt-1.5 text-[11.5px] uppercase tracking-[0.06em] text-neutral-400">Go to</p>
           <div className="grid grid-cols-1 gap-0.5">
-            {all.map((k) => (
-              <MenuLink key={k} k={k} active={k === current} />
+            {all.map((e) => (
+              <MenuLink key={e.key} entry={e} active={e.key === current.key} />
             ))}
           </div>
         </div>
@@ -218,18 +364,27 @@ function PageSwitcher({ open, onToggle, onClose }: { open: boolean; onToggle: ()
 
 function CreateMenu({ open, onToggle, onClose }: { open: boolean; onToggle: () => void; onClose: () => void }) {
   const { perms } = useCrm();
+  const { mode } = useNav();
   const router = useRouter();
   const ref = useDismiss(open, onClose);
   const [modal, setModal] = useState<null | "meeting" | "payment">(null);
 
-  const items: { icon: LucideIcon; label: string; hint: string; run: () => void }[] = [
-    { icon: UserPlus, label: "New lead", hint: "Add a lead by hand", run: () => router.push("/leads?new=1") },
-    { icon: CalendarPlus, label: "Book meeting", hint: "Schedule with a lead", run: () => setModal("meeting") },
-    { icon: Wallet, label: "Record payment", hint: "Advance or invoice", run: () => setModal("payment") },
-    ...(perms.importLeads
-      ? [{ icon: Upload, label: "Import leads", hint: "Upload a CSV file", run: () => router.push("/leads?import=1") }]
-      : []),
-  ];
+  const items: { icon: LucideIcon; label: string; hint: string; run: () => void }[] =
+    mode === "email"
+      ? [
+          { icon: Send, label: "New campaign", hint: "Email a list of contacts", run: () => router.push("/email/campaigns/new") },
+          { icon: Workflow, label: "New automation", hint: "A follow-up email sequence", run: () => router.push("/email/automations/new") },
+          { icon: LayoutTemplate, label: "New template", hint: "Reusable email design", run: () => router.push("/email/templates?new=1") },
+          { icon: Upload, label: "Import contacts", hint: "Upload a CSV file", run: () => router.push("/email/contacts?import=1") },
+        ]
+      : [
+          { icon: UserPlus, label: "New lead", hint: "Add a lead by hand", run: () => router.push("/leads?new=1") },
+          { icon: CalendarPlus, label: "Book meeting", hint: "Schedule with a lead", run: () => setModal("meeting") },
+          { icon: Wallet, label: "Record payment", hint: "Advance or invoice", run: () => setModal("payment") },
+          ...(perms.importLeads
+            ? [{ icon: Upload, label: "Import leads", hint: "Upload a CSV file", run: () => router.push("/leads?import=1") }]
+            : []),
+        ];
 
   return (
     <div ref={ref} className="relative">
@@ -274,24 +429,19 @@ function CreateMenu({ open, onToggle, onClose }: { open: boolean; onToggle: () =
 // ─── Classic header ──────────────────────────────────────────
 
 function ClassicHeader() {
-  const pathname = usePathname();
-  const { viewer } = useCrm();
-  const { primary, more } = navFor(viewer.role);
+  const { primary, more, isActive } = useNav();
   const { open, close, toggle } = useMenus();
   const moreRef = useDismiss(open === "more", close);
   const mobileRef = useDismiss(open === "pages", close);
-  const isActive = (k: NavKey) => pathname.startsWith(NAV_ITEMS[k].href);
 
   return (
     <header className={STICKY}>
       <div className="mx-auto flex h-20 max-w-[1440px] items-center px-6 lg:px-10">
-      <Link href={HOME_PATH} className="shrink-0">
-        <Logo />
-      </Link>
+      <AppSwitcher variant="classic" open={open === "apps"} onToggle={() => toggle("apps")} onClose={close} />
 
       <nav className="ml-12 hidden items-center gap-1 xl:flex">
-        {primary.map((k) => (
-          <NavLink key={k} k={k} active={isActive(k)} />
+        {primary.map((e) => (
+          <NavLink key={e.key} entry={e} active={isActive(e)} />
         ))}
         {more.length > 0 && (
           <div ref={moreRef} className="relative">
@@ -307,8 +457,8 @@ function ClassicHeader() {
             </button>
             {open === "more" && (
               <div className={cn(panel, "left-0 w-[220px]")}>
-                {more.map((k) => (
-                  <MenuLink key={k} k={k} active={isActive(k)} />
+                {more.map((e) => (
+                  <MenuLink key={e.key} entry={e} active={isActive(e)} />
                 ))}
               </div>
             )}
@@ -327,8 +477,8 @@ function ClassicHeader() {
           </CircleBtn>
           {open === "pages" && (
             <div className={cn(panel, "right-0 w-[240px]")}>
-              {[...primary, ...more].map((k) => (
-                <MenuLink key={k} k={k} active={isActive(k)} />
+              {[...primary, ...more].map((e) => (
+                <MenuLink key={e.key} entry={e} active={isActive(e)} />
               ))}
             </div>
           )}
@@ -339,34 +489,34 @@ function ClassicHeader() {
   );
 }
 
-function NavLink({ k, active }: { k: NavKey; active: boolean }) {
-  const Icon = NAV_ICONS[k];
+function NavLink({ entry, active }: { entry: NavEntry; active: boolean }) {
   return (
     <Link
-      href={NAV_ITEMS[k].href}
+      href={entry.href}
       className={cn(
         "flex h-9 items-center gap-2 rounded-full px-4 text-[13.5px] transition-colors",
         active ? "bg-ink text-white" : "text-neutral-700 hover:text-ink"
       )}
     >
-      {active && <Icon className="h-3.5 w-3.5" strokeWidth={2} />}
-      {NAV_ITEMS[k].label}
+      {active && <entry.icon className="h-3.5 w-3.5" strokeWidth={2} />}
+      {entry.label}
+      <CountBadge n={entry.badge} />
     </Link>
   );
 }
 
-function MenuLink({ k, active }: { k: NavKey; active: boolean }) {
-  const Icon = NAV_ICONS[k];
+function MenuLink({ entry, active }: { entry: NavEntry; active: boolean }) {
   return (
     <Link
-      href={NAV_ITEMS[k].href}
+      href={entry.href}
       className={cn(
         "flex h-11 items-center gap-3 rounded-xl px-3.5 text-[14px] transition-colors",
         active ? "bg-ink text-white" : "text-ink hover:bg-page"
       )}
     >
-      <Icon className="h-4 w-4" strokeWidth={1.8} />
-      {NAV_ITEMS[k].label}
+      <entry.icon className="h-4 w-4" strokeWidth={1.8} />
+      <span className="flex-1">{entry.label}</span>
+      <CountBadge n={entry.badge} />
     </Link>
   );
 }
@@ -422,6 +572,7 @@ type DropdownProps = { variant: Variant; open: boolean; onToggle: () => void; on
 
 function SearchButton({ variant, open, onToggle, onClose }: DropdownProps) {
   const { data } = useCrm();
+  const { mode } = useNav();
   const router = useRouter();
   const ref = useDismiss(open, onClose);
   const [q, setQ] = useState("");
@@ -434,10 +585,11 @@ function SearchButton({ variant, open, onToggle, onClose }: DropdownProps) {
         (l) =>
           l.businessName.toLowerCase().includes(term) ||
           l.decisionMakerName.toLowerCase().includes(term) ||
-          (digits.length >= 3 && l.phone.replace(/\D/g, "").includes(digits))
+          (digits.length >= 3 && l.phone.replace(/\D/g, "").includes(digits)) ||
+          (mode === "email" && l.email.toLowerCase().includes(term))
       )
       .slice(0, 7);
-  }, [q, data.leads]);
+  }, [q, data.leads, mode]);
 
   return (
     <div ref={ref} className="relative">
@@ -459,7 +611,7 @@ function SearchButton({ variant, open, onToggle, onClose }: DropdownProps) {
               autoFocus
               value={q}
               onChange={(e) => setQ(e.target.value)}
-              placeholder="Search business, owner or phone…"
+              placeholder={mode === "email" ? "Search business, contact or email…" : "Search business, owner or phone…"}
               className="min-w-0 flex-1 bg-transparent text-[14px] outline-none placeholder:text-neutral-500"
             />
           </label>
@@ -475,7 +627,7 @@ function SearchButton({ variant, open, onToggle, onClose }: DropdownProps) {
                   onClick={() => {
                     onClose();
                     setQ("");
-                    router.push(`/leads?lead=${l.id}`);
+                    router.push(mode === "email" ? `/email/contacts?contact=${l.id}` : `/leads?lead=${l.id}`);
                   }}
                   className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left hover:bg-page"
                 >
@@ -483,7 +635,7 @@ function SearchButton({ variant, open, onToggle, onClose }: DropdownProps) {
                   <span className="min-w-0">
                     <span className="block truncate text-[14px] font-medium">{l.businessName}</span>
                     <span className="block truncate text-[12px] text-neutral-500">
-                      {l.decisionMakerName} · {l.phone}
+                      {[l.decisionMakerName, mode === "email" ? l.email : l.phone].filter(Boolean).join(" · ")}
                     </span>
                   </span>
                 </button>
@@ -498,6 +650,7 @@ function SearchButton({ variant, open, onToggle, onClose }: DropdownProps) {
 
 function BellButton({ variant, open, onToggle, onClose }: DropdownProps) {
   const { data, viewer, perms } = useCrm();
+  const unreadReplies = useContext(UnreadReplies);
   const router = useRouter();
   const ref = useDismiss(open, onClose);
 
@@ -506,6 +659,15 @@ function BellButton({ variant, open, onToggle, onClose }: DropdownProps) {
     const now = new Date().toISOString();
     const mine = (userId: string | null) => perms.seesTeam || userId === viewer.id;
     const out: { id: string; icon: LucideIcon; title: string; body: string; href: string }[] = [];
+
+    if (perms.emailMarketing && unreadReplies > 0)
+      out.push({
+        id: "replies",
+        icon: Inbox,
+        title: `${unreadReplies} unread email repl${unreadReplies === 1 ? "y" : "ies"}`,
+        body: "Open the email inbox",
+        href: "/email/inbox?folder=unread",
+      });
 
     // Your own follow-ups and meetings inside the reminder window come first.
     const soonMs = data.settings.reminderMinutes * 60 * 1000;
@@ -550,7 +712,7 @@ function BellButton({ variant, open, onToggle, onClose }: DropdownProps) {
         href: "/dashboard?tab=sales",
       });
     return out;
-  }, [data, viewer.id, perms.seesTeam]);
+  }, [data, viewer.id, perms.seesTeam, perms.emailMarketing, unreadReplies]);
 
   const badge = items.length > 0 && (
     <span className="absolute right-[7px] top-[6px] grid h-[16px] min-w-[16px] place-items-center rounded-full bg-brand px-1 text-[9.5px] font-semibold leading-none text-brand-fg ring-2 ring-header">

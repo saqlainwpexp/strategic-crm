@@ -19,6 +19,8 @@ const nextConfig = {
   typescript: { ignoreBuildErrors: false },
   // The app doesn't use next/image; disabling the optimiser removes that attack surface.
   images: { unoptimized: true },
+  // Mail libraries use Node APIs; load them as-is on the server instead of bundling.
+  serverExternalPackages: ["nodemailer", "imapflow", "mailparser"],
   experimental: {
     // CSV imports of a few thousand leads go through a server action.
     serverActions: { bodySizeLimit: "4mb" },

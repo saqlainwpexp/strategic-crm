@@ -12,6 +12,7 @@ import { audit } from "./audit";
 import { AuthError, requireActionUser, visibleUserIds } from "./session";
 import { BCRYPT_ROUNDS, MIN_PASSWORD_LENGTH } from "./auth";
 import { normalizeSettings, saveBrandingRow, saveSettingsRow } from "./settings";
+import { fireTrigger } from "./email/triggers";
 import { permissionsFor } from "@/lib/access";
 import { normalizeBranding, type Branding } from "@/lib/branding";
 import { AGENCY_SERVICES, DISPOSITIONS, DISPOSITION_TO_STAGE, PIPELINE_STAGES, PRIORITIES, type PipelineStage } from "@/lib/constants";
@@ -134,7 +135,7 @@ export async function updateLeadAction(leadId: string, patch: LeadPatch) {
     const me = await requireActionUser();
     const lid = id.parse(leadId);
     const p = leadPatch.parse(patch);
-    await leadInScope(me, lid);
+    const before = await leadInScope(me, lid);
     if (p.assignedToId !== undefined || p.poolId !== undefined) {
       if (!permissionsFor(me.role).assignLeads) throw new Forbidden("You can't reassign leads.");
       if (p.assignedToId !== undefined) await assertAssignable(me, p.assignedToId);
@@ -146,6 +147,7 @@ export async function updateLeadAction(leadId: string, patch: LeadPatch) {
       data.closedAt = closedAtFor(p.stage, current?.closedAt ?? null);
     }
     await prisma.lead.update({ where: { id: lid }, data });
+    if (p.stage !== undefined && p.stage !== before.stage) await fireTrigger("STAGE_CHANGED", [lid], p.stage);
   });
 }
 
@@ -170,6 +172,7 @@ export async function createLeadAction(input: { id: string } & z.infer<typeof le
         closedAt: p.stage === "CLOSED_WON" ? new Date() : null,
       },
     });
+    await fireTrigger("LEAD_CREATED", [newId]);
   });
 }
 
@@ -210,6 +213,8 @@ export async function importLeadsAction(
       data: { ...m, successCount: result.count, uploadedById: me.id },
     });
     await audit(me.id, "leads.import", "CsvImport", imp.id, { count: result.count, fileName: m.fileName });
+    const created = await prisma.lead.findMany({ where: { id: { in: parsed.map((r) => r.id) } }, select: { id: true } });
+    await fireTrigger("LEAD_CREATED", created.map((l) => l.id));
     return { imported: result.count };
   });
 }
@@ -288,6 +293,7 @@ export async function logCallAction(input: {
         },
       }),
     ]);
+    if (nextStage && nextStage !== lead.stage) await fireTrigger("STAGE_CHANGED", [c.leadId], nextStage);
   });
 }
 
@@ -329,6 +335,7 @@ export async function createMeetingAction(input: {
       prisma.meeting.create({ data: { ...m, scheduledAt: new Date(m.scheduledAt), notes: m.notes || null } }),
       ...(advance ? [prisma.lead.update({ where: { id: m.leadId }, data: { stage: "MEETING_BOOKED" } })] : []),
     ]);
+    if (advance) await fireTrigger("STAGE_CHANGED", [m.leadId], "MEETING_BOOKED");
   });
 }
 
@@ -350,6 +357,7 @@ export async function updateMeetingAction(meetingId: string, patch: { status?: s
         ? [prisma.lead.updateMany({ where: { id: meeting.leadId, stage: { not: "CLOSED_WON" } }, data: { stage } })]
         : []),
     ]);
+    if (stage) await fireTrigger("STAGE_CHANGED", [meeting.leadId], stage);
   });
 }
 

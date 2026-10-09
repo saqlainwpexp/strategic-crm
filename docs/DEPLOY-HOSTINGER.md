@@ -105,6 +105,8 @@ Then run `npm run dev`, open http://localhost:3000, sign in, and add your team u
    | `DATABASE_URL` | Same as your `.env`, but the host is usually **`localhost`** when the app runs on Hostinger's own server. If that fails, use the host hPanel shows for the database. |
    | `NEXTAUTH_SECRET` | The same long random string |
    | `NEXTAUTH_URL` | Your live address, e.g. `https://crm.strategiccoresolutions.com` |
+   | `EMAIL_ENCRYPTION_KEY` | **The same value as in your PC's `.env`** (see below) |
+   | `CRON_SECRET` | Optional — a long random string, for the cron job in step 10 |
 
 5. Deploy. New pushes to `main` can redeploy automatically if you enable it.
 
@@ -122,6 +124,24 @@ The tables, your admin account and your team already live in the database, so th
 - Check **Admin → Settings**: dialer (Zoom Phone), lead temperature thresholds and reminder timing.
 - Ask each rep to open the Loadboard and **turn on desktop alerts** for reminders.
 
+## 10. Email marketing
+
+**Encryption key.** Mailbox passwords are encrypted with `EMAIL_ENCRYPTION_KEY`. Your PC and the live site share one database, so they must use the **same** key — a mailbox saved with one key can't be read with another. To see the value in your local `.env`, run this in the project folder and copy it into Hostinger's environment variables (don't paste it anywhere else):
+
+```bash
+node -e "console.log(require('fs').readFileSync('.env','utf8').match(/^EMAIL_ENCRYPTION_KEY=.*$/m)[0])"
+```
+
+**Background sending.** The app sends queued emails, runs automations and syncs replies by itself while it's running. Because your PC and the live site share the database, either can do the sending — each email is claimed once, so nothing goes out twice. If you'd rather only the live site sends, add `EMAIL_WORKER="off"` to your PC's `.env`.
+
+**Keep it awake (recommended).** If Hostinger idles the app when nobody's using it, scheduled campaigns and automations pause too. Add `CRON_SECRET` (a long random string) to the app's environment variables, then in hPanel → **Advanced → Cron Jobs** add a job every minute:
+
+```bash
+curl -fsS "https://crm.strategiccoresolutions.com/api/e/cron?key=YOUR_CRON_SECRET" > /dev/null
+```
+
+**Deliverability checklist.** Use a mailbox on your own domain, verify SPF/DKIM/DMARC under **Email → Sending → Domains**, start new mailboxes at 30–50 emails a day and raise slowly, keep the unsubscribe link on.
+
 ## Troubleshooting
 
 | Problem | Likely cause |
@@ -131,6 +151,8 @@ The tables, your admin account and your team already live in the database, so th
 | Password with special characters breaks the URL | URL-encode them (see step 4) or change the password. |
 | Build runs out of memory | Hostinger plans have limited RAM; retry, or build locally and upload. |
 | App starts but pages error | Missing environment variables in the Hostinger app settings. |
+| Mailbox shows "Unreadable stored password" | `EMAIL_ENCRYPTION_KEY` differs between your PC and Hostinger. Make them the same, or re-enter the mailbox password. |
+| Scheduled campaigns start late | The app was idle — set up the cron job in step 10. |
 
 ## Security notes
 

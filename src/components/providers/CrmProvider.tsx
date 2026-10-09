@@ -198,7 +198,11 @@ export function CrmProvider({
             created.map(({ createdAt: _c, ...r }) => r),
             meta
           ),
-          (res) => notify(`${res.imported} leads imported`)
+          (res) => {
+            notify(`${res.imported} leads imported`);
+            // Server-rendered pages (e.g. email Contacts) pick up the new rows.
+            router.refresh();
+          }
         );
       },
 

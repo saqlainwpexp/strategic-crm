@@ -12,6 +12,7 @@ import { Avatar } from "@/components/ui/Avatar";
 import type { CustomFieldDef, CustomFieldValue, Lead } from "@/lib/types";
 import type { AgencyService, Priority } from "@/lib/constants";
 import { cn, uid } from "@/lib/utils";
+import { isValidEmail } from "@/lib/email";
 
 type Row = Record<string, string>;
 type Step = "upload" | "map" | "review" | "done";
@@ -63,11 +64,16 @@ export function CsvImportModal({
   open,
   onClose,
   onImported,
+  mode = "calling",
 }: {
   open: boolean;
   onClose: () => void;
   onImported?: (poolId: string | null) => void;
+  /** Email marketing imports contacts: an email is required, a phone isn't. */
+  mode?: "calling" | "email";
 }) {
+  const requiredKeys = mode === "email" ? ["businessName", "email"] : ["businessName", "phone"];
+  const missingWhat = mode === "email" ? "a name or valid email" : "a name or phone";
   const { data, importLeads, savePool } = useCrm();
   const { branding } = useBranding();
   const fileRef = useRef<HTMLInputElement>(null);
@@ -146,7 +152,7 @@ export function CsvImportModal({
   };
 
   const mappedTargets = new Set(Object.values(mapping));
-  const missingRequired = CORE.filter((c) => c.required && !mappedTargets.has(c.key));
+  const missingRequired = CORE.filter((c) => requiredKeys.includes(c.key) && !mappedTargets.has(c.key));
 
   // Build leads + classify rows
   const analysis = useMemo(() => {
@@ -166,11 +172,11 @@ export function CsvImportModal({
     for (const row of rows) {
       const businessName = get(row, "businessName");
       const phone = get(row, "phone");
-      if (!businessName || !phone) {
+      const email = get(row, "email").toLowerCase();
+      if (!businessName || (mode === "email" ? !isValidEmail(email) : !phone)) {
         errors++;
         continue;
       }
-      const email = get(row, "email").toLowerCase();
       const pk = phoneKey(phone);
       const dupe = (pk && (existingPhones.has(pk) || seenPhones.has(pk))) || (email && (existingEmails.has(email) || seenEmails.has(email)));
       if (pk) seenPhones.add(pk);
@@ -218,7 +224,8 @@ export function CsvImportModal({
       });
     }
     return { ready, dupes, errors };
-  }, [step, mapping, rows, data.leads, skipDupes, customFields]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step, mapping, rows, data.leads, skipDupes, customFields, mode]);
 
   const runImport = () => {
     if (!analysis) return;
@@ -408,7 +415,7 @@ export function CsvImportModal({
                     {CORE.map((c) => (
                       <option key={c.key} value={c.key}>
                         {c.label}
-                        {c.required ? " *" : ""}
+                        {requiredKeys.includes(c.key) ? " *" : ""}
                       </option>
                     ))}
                   </optgroup>
@@ -433,7 +440,7 @@ export function CsvImportModal({
           <div className="grid gap-4 sm:grid-cols-3">
             <Summary label="Ready to import" value={analysis.ready.length} tone="ink" />
             <Summary label={skipDupes ? "Duplicates skipped" : "Duplicates (importing)"} value={analysis.dupes} />
-            <Summary label="Missing name or phone" value={analysis.errors} />
+            <Summary label={`Missing ${missingWhat}`} value={analysis.errors} />
           </div>
           <div className="mt-4">
             <Toggle checked={skipDupes} onChange={setSkipDupes} label="Skip leads whose phone or email already exists" />
@@ -534,7 +541,7 @@ export function CsvImportModal({
           <p className="mt-6 text-[22px] font-medium tracking-[-0.01em]">{result.imported} leads imported</p>
           <p className="mt-2 text-[14px] text-neutral-500">
             {result.dupes} duplicate{result.dupes === 1 ? "" : "s"} {skipDupes ? "skipped" : "imported"} · {result.errors} row
-            {result.errors === 1 ? "" : "s"} missing a name or phone
+            {result.errors === 1 ? "" : "s"} missing {missingWhat}
           </p>
         </div>
       )}

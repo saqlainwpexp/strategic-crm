@@ -40,3 +40,31 @@ export function navFor(role: Role): { primary: NavKey[]; more: NavKey[] } {
       return { primary: ["loadboard", "dashboard", "leads", "pipeline", "team", "admin"], more: ["schedule", "scripts"] };
   }
 }
+
+// ─── Email marketing ─────────────────────────────────────────
+
+/** The two apps behind the logo switcher. */
+export type AppMode = "calling" | "email";
+
+export const EMAIL_HOME = "/email";
+
+export type EmailNavKey = "overview" | "campaigns" | "automations" | "inbox" | "contacts" | "templates" | "sending";
+
+export const EMAIL_NAV: Record<EmailNavKey, { label: string; href: string; exact?: boolean }> = {
+  overview: { label: "Dashboard", href: "/email", exact: true },
+  campaigns: { label: "Campaigns", href: "/email/campaigns" },
+  automations: { label: "Automations", href: "/email/automations" },
+  inbox: { label: "Inbox", href: "/email/inbox" },
+  contacts: { label: "Contacts", href: "/email/contacts" },
+  templates: { label: "Templates", href: "/email/templates" },
+  sending: { label: "Sending", href: "/email/sending" },
+};
+
+export const EMAIL_NAV_ORDER: { primary: EmailNavKey[]; more: EmailNavKey[] } = {
+  primary: ["overview", "campaigns", "automations", "inbox", "contacts"],
+  more: ["templates", "sending"],
+};
+
+export function modeFor(pathname: string): AppMode {
+  return pathname === "/email" || pathname.startsWith("/email/") ? "email" : "calling";
+}
