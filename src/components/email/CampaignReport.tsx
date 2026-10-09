@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, Ban, CircleAlert, Copy, MailCheck, MailOpen, MessageSquareReply, MousePointerClick, Pause, Play, Send, Users } from "lucide-react";
+import { ArrowLeft, Ban, CircleAlert, Copy, Pencil, Trash2, MailCheck, MailOpen, MessageSquareReply, MousePointerClick, Pause, Play, Send, Users } from "lucide-react";
 import { Card, CardHeader } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { SearchInput } from "@/components/ui/Form";
@@ -15,7 +15,9 @@ import { cn } from "@/lib/utils";
 import { formatDateTime } from "@/lib/date";
 import { audienceSummary, pct } from "@/lib/email";
 import type { CampaignView, EmailAccountView, RecipientView } from "@/lib/email-types";
-import { duplicateCampaignAction, processQueueNowAction, setCampaignStatusAction } from "@/server/email/actions";
+import { deleteCampaignAction, duplicateCampaignAction, processQueueNowAction, renameCampaignAction, setCampaignStatusAction } from "@/server/email/actions";
+import { RenameModal, RowMenu } from "@/components/ui/RowMenu";
+import { deleteCampaignWarning } from "./CampaignsView";
 import { EmailPreview } from "./EmailPreview";
 import { CampaignStatusLabel, Meter, useEmailAction } from "./kit";
 
@@ -38,6 +40,7 @@ export function CampaignReport({ campaign, recipients, accounts }: { campaign: C
   const { confirm, dialog } = useConfirm();
   const [filter, setFilter] = useState<Filter>("all");
   const [q, setQ] = useState("");
+  const [renaming, setRenaming] = useState(false);
   const s = campaign.stats;
   const live = campaign.status === "SENDING";
 
@@ -120,6 +123,26 @@ export function CampaignReport({ campaign, recipients, accounts }: { campaign: C
           >
             <Copy className="h-4 w-4" /> Duplicate
           </Button>
+          <RowMenu
+            items={[
+              { icon: Pencil, label: "Rename", onClick: () => setRenaming(true) },
+              {
+                icon: Trash2,
+                label: "Delete",
+                danger: true,
+                onClick: () =>
+                  confirm({
+                    title: `Delete “${campaign.name}”?`,
+                    body: deleteCampaignWarning(campaign),
+                    confirmLabel: "Delete campaign",
+                    danger: true,
+                    run: async () => {
+                      if (await run("del", deleteCampaignAction(campaign.id), "Campaign deleted")) router.push("/email/campaigns");
+                    },
+                  }),
+              },
+            ]}
+          />
         </div>
       </div>
 
@@ -234,6 +257,13 @@ export function CampaignReport({ campaign, recipients, accounts }: { campaign: C
         </Card>
       </div>
       {dialog}
+      <RenameModal
+        open={renaming}
+        title="Rename campaign"
+        initial={campaign.name}
+        onClose={() => setRenaming(false)}
+        onSave={(name) => run("rename", renameCampaignAction(campaign.id, name), "Campaign renamed")}
+      />
     </div>
   );
 }

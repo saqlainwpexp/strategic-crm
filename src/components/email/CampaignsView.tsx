@@ -3,7 +3,8 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Copy, Plus, Send, Trash2 } from "lucide-react";
+import { Copy, Pencil, Plus, Send, Trash2 } from "lucide-react";
+import { RenameModal, RowMenu } from "@/components/ui/RowMenu";
 import { Card } from "@/components/ui/Card";
 import { IconButton, buttonClass } from "@/components/ui/Button";
 import { SearchInput } from "@/components/ui/Form";
@@ -13,7 +14,7 @@ import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { dayLabel, dayKey, formatTime } from "@/lib/date";
 import { audienceSummary } from "@/lib/email";
 import type { CampaignStatus, CampaignView } from "@/lib/email-types";
-import { deleteCampaignAction, duplicateCampaignAction } from "@/server/email/actions";
+import { deleteCampaignAction, duplicateCampaignAction, renameCampaignAction } from "@/server/email/actions";
 import { CampaignStatusLabel, Meter, RateCell, useEmailAction } from "./kit";
 
 type Filter = "all" | "draft" | "scheduled" | "active" | "sent";
@@ -38,6 +39,7 @@ export function CampaignsView({ campaigns }: { campaigns: CampaignView[] }) {
   const { confirm, dialog } = useConfirm();
   const [filter, setFilter] = useState<Filter>("all");
   const [q, setQ] = useState("");
+  const [renaming, setRenaming] = useState<CampaignView | null>(null);
 
   const counts = useMemo(() => {
     const c = { all: campaigns.length, draft: 0, scheduled: 0, active: 0, sent: 0 } as Record<Filter, number>;
@@ -150,34 +152,33 @@ export function CampaignsView({ campaigns }: { campaigns: CampaignView[] }) {
                         </td>
                         <td className="whitespace-nowrap py-4 pr-4 text-neutral-600">{when(c)}</td>
                         <td className="py-4 pr-7 text-right" onClick={(e) => e.stopPropagation()}>
-                          <div className="flex justify-end gap-1.5">
-                            <IconButton
-                              label="Duplicate"
-                              size="sm"
-                              onClick={async () => {
-                                const r = await run("dup", duplicateCampaignAction(c.id), "Campaign duplicated");
-                                if (r) router.push(`/email/campaigns/${r.id}`);
-                              }}
-                            >
-                              <Copy className="h-4 w-4" />
-                            </IconButton>
-                            {c.status !== "SENDING" && (
-                              <IconButton
-                                label="Delete"
-                                size="sm"
-                                onClick={() =>
-                                  confirm({
-                                    title: `Delete “${c.name}”?`,
-                                    body: c.stats.sent ? "Its report and open/click history are deleted too. Contacts aren't affected." : undefined,
-                                    confirmLabel: "Delete campaign",
-                                    danger: true,
-                                    run: () => run("del", deleteCampaignAction(c.id), "Campaign deleted"),
-                                  })
-                                }
-                              >
-                                <Trash2 className="h-4 w-4" />
-                              </IconButton>
-                            )}
+                          <div className="flex justify-end">
+                            <RowMenu
+                              items={[
+                                { icon: Pencil, label: "Rename", onClick: () => setRenaming(c) },
+                                {
+                                  icon: Copy,
+                                  label: "Duplicate",
+                                  onClick: async () => {
+                                    const r = await run("dup", duplicateCampaignAction(c.id), "Campaign duplicated");
+                                    if (r) router.push(`/email/campaigns/${r.id}`);
+                                  },
+                                },
+                                {
+                                  icon: Trash2,
+                                  label: "Delete",
+                                  danger: true,
+                                  onClick: () =>
+                                    confirm({
+                                      title: `Delete “${c.name}”?`,
+                                      body: deleteCampaignWarning(c),
+                                      confirmLabel: "Delete campaign",
+                                      danger: true,
+                                      run: () => run("del", deleteCampaignAction(c.id), "Campaign deleted"),
+                                    }),
+                                },
+                              ]}
+                            />
                           </div>
                         </td>
                       </tr>
@@ -190,6 +191,20 @@ export function CampaignsView({ campaigns }: { campaigns: CampaignView[] }) {
         </Card>
       )}
       {dialog}
+      <RenameModal
+        open={!!renaming}
+        title="Rename campaign"
+        initial={renaming?.name ?? ""}
+        onClose={() => setRenaming(null)}
+        onSave={(name) => run("rename", renameCampaignAction(renaming!.id, name), "Campaign renamed")}
+      />
     </div>
   );
+}
+
+export function deleteCampaignWarning(c: CampaignView) {
+  if (c.status === "SENDING" || c.status === "PAUSED")
+    return "It's still going out — deleting stops it straight away. Its report and open/click history are deleted too. Contacts aren't affected.";
+  if (c.stats.sent) return "Its report and open/click history are deleted too. Contacts aren't affected.";
+  return undefined;
 }

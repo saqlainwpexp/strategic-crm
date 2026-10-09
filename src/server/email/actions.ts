@@ -433,7 +433,7 @@ export async function deleteCampaignAction(campaignId: string) {
     const cid = id.parse(campaignId);
     const c = await prisma.campaign.findUnique({ where: { id: cid }, select: { status: true, name: true } });
     if (!c) return;
-    if (c.status === "SENDING") throw new Invalid("Pause or cancel the campaign before deleting it.");
+    // Deleting a live campaign stops it: its queued emails go with it (cascade).
     await prisma.campaign.delete({ where: { id: cid } });
     await audit(me.id, "email.campaign_delete", "Campaign", cid, { name: c.name });
     done();
@@ -830,5 +830,64 @@ export async function bulkAddInboxesAction(input: z.infer<typeof bulkInput>) {
     await audit(me.id, "email.inboxes_bulk_add", "EmailAccount", undefined, { count: created.length });
     done();
     return { added: created.length, results };
+  });
+}
+
+// ─── Rename / duplicate ──────────────────────────────────────
+
+const newName = str(160).transform((s) => s.trim()).pipe(z.string().min(1));
+
+export async function renameCampaignAction(campaignId: string, name: string) {
+  return run("renameCampaign", async () => {
+    await requireEmailUser();
+    await prisma.campaign.update({ where: { id: id.parse(campaignId) }, data: { name: newName.parse(name) } });
+    done();
+  });
+}
+
+export async function renameAutomationAction(automationId: string, name: string) {
+  return run("renameAutomation", async () => {
+    await requireEmailUser();
+    await prisma.automation.update({ where: { id: id.parse(automationId) }, data: { name: newName.parse(name) } });
+    done();
+  });
+}
+
+export async function renameTemplateAction(templateId: string, name: string) {
+  return run("renameTemplate", async () => {
+    await requireEmailUser();
+    await prisma.emailTemplate.update({ where: { id: id.parse(templateId) }, data: { name: newName.parse(name) } });
+    done();
+  });
+}
+
+/** Copies a workflow as a paused draft (nobody enrolled). */
+export async function duplicateAutomationAction(automationId: string) {
+  return run("duplicateAutomation", async () => {
+    await requireEmailUser();
+    const a = await prisma.automation.findUnique({ where: { id: id.parse(automationId) } });
+    if (!a) throw new Invalid("That workflow no longer exists.");
+    const copy = await prisma.automation.create({
+      data: {
+        name: `${a.name} (copy)`.slice(0, 160),
+        trigger: a.trigger,
+        triggerValue: a.triggerValue,
+        flow: a.flow as Prisma.InputJsonValue,
+        accountIds: a.accountIds as Prisma.InputJsonValue,
+        stopOnReply: a.stopOnReply,
+      },
+    });
+    done();
+    return { id: copy.id };
+  });
+}
+
+export async function duplicateTemplateAction(templateId: string) {
+  return run("duplicateTemplate", async () => {
+    await requireEmailUser();
+    const t = await prisma.emailTemplate.findUnique({ where: { id: id.parse(templateId) } });
+    if (!t) throw new Invalid("That template no longer exists.");
+    await prisma.emailTemplate.create({ data: { name: `${t.name} (copy)`.slice(0, 120), subject: t.subject, html: t.html } });
+    done();
   });
 }

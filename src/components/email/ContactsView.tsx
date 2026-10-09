@@ -14,6 +14,7 @@ import {
   Tag,
   Upload,
   Workflow,
+  Trash2,
   X,
 } from "lucide-react";
 import { Card } from "@/components/ui/Card";
@@ -32,6 +33,9 @@ import { CONTACT_STATUS_COLOR, CONTACT_STATUS_LABELS, type ContactStatus } from 
 import type { AutomationView, ContactActivity, ContactView } from "@/lib/email-types";
 import { enrollContactsAction, getContactActivityAction, handoffContactsAction, setSubscriptionAction, updateContactTagsAction } from "@/server/email/actions";
 import { HandoffButton } from "./HandoffButton";
+import { deleteLeadsAction } from "@/server/actions";
+import { DeleteLeadsWarning } from "@/components/shared/DeleteLeadsWarning";
+import { useCrm } from "@/components/providers/CrmProvider";
 import { HANDOFF_KEY } from "./CampaignEditor";
 import { MultiPick } from "./MultiPick";
 import { recipientState } from "./CampaignReport";
@@ -62,6 +66,7 @@ export function ContactsView({ contacts, total, page, pages, tags, automations, 
   const params = useSearchParams();
   const { run, busy } = useEmailAction();
   const { confirm, dialog } = useConfirm();
+  const { perms } = useCrm();
   const [q, setQ] = useState(params.get("q") ?? "");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [importOpen, setImportOpen] = useState(params.get("import") === "1");
@@ -170,6 +175,21 @@ export function ContactsView({ contacts, total, page, pages, tags, automations, 
                   })
                 }
               />
+              {perms.deleteLeads && (
+                <BulkBtn
+                  icon={Trash2}
+                  label="Delete"
+                  onClick={() =>
+                    confirm({
+                      title: `Delete ${ids.length} contact${ids.length === 1 ? "" : "s"}?`,
+                      body: <DeleteLeadsWarning count={ids.length} />,
+                      confirmLabel: "Delete permanently",
+                      danger: true,
+                      run: () => run("delete", deleteLeadsAction(ids), (r) => `${r.deleted} deleted`),
+                    })
+                  }
+                />
+              )}
               <button onClick={() => setSelected(new Set())} className="h-8 rounded-full px-3 text-[12.5px] text-white/70 hover:text-white">
                 Clear
               </button>
@@ -373,6 +393,8 @@ function TagPicker({ tags, onPick, verb, allowNew, busy }: { tags: string[]; onP
 
 function ContactDrawer({ contact, onClose, allTags, reps }: { contact: ContactView | null; onClose: () => void; allTags: string[]; reps: { id: string; name: string }[] }) {
   const { run, busy } = useEmailAction();
+  const { perms } = useCrm();
+  const { confirm, dialog } = useConfirm();
   const [activity, setActivity] = useState<ContactActivity | null>(null);
   const [tags, setTags] = useState<string[]>([]);
 
@@ -432,6 +454,25 @@ function ContactDrawer({ contact, onClose, allTags, reps }: { contact: ContactVi
           <Link href={`/leads?lead=${contact.id}`} className="inline-flex h-9 items-center gap-1.5 rounded-full bg-page px-4 text-[13px] hover:bg-neutral-200/80">
             <ExternalLink className="h-3.5 w-3.5" /> Open in Cold Calling CRM
           </Link>
+          {perms.deleteLeads && (
+            <Button
+              variant="danger"
+              size="sm"
+              onClick={() =>
+                confirm({
+                  title: `Delete ${contact.businessName}?`,
+                  body: <DeleteLeadsWarning count={1} />,
+                  confirmLabel: "Delete permanently",
+                  danger: true,
+                  run: async () => {
+                    if (await run("delete", deleteLeadsAction([contact.id]), "Contact deleted")) onClose();
+                  },
+                })
+              }
+            >
+              <Trash2 className="h-3.5 w-3.5" /> Delete
+            </Button>
+          )}
         </div>
 
         <div className="mt-8">
@@ -497,6 +538,7 @@ function ContactDrawer({ contact, onClose, allTags, reps }: { contact: ContactVi
           </div>
         )}
       </div>
+      {dialog}
     </Drawer>
   );
 }

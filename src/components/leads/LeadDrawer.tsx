@@ -13,6 +13,7 @@ import {
   Phone,
   PhoneCall,
   PhoneMissed,
+  Trash2,
   User as UserIcon,
   Video,
   X,
@@ -26,6 +27,8 @@ import { Select, Textarea } from "@/components/ui/Form";
 import { LeadThumb } from "@/components/ui/LeadThumb";
 import { Avatar } from "@/components/ui/Avatar";
 import { MeetingModal } from "@/components/shared/MeetingModal";
+import { DeleteLeadsWarning } from "@/components/shared/DeleteLeadsWarning";
+import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { CallPanel } from "./CallPanel";
 import {
   CONNECT_DISPOSITIONS,
@@ -58,8 +61,9 @@ export function LeadDrawer({
   /** Runs after a call is saved, unless a meeting still needs booking. */
   afterCall?: () => void;
 }) {
-  const { leadById, data, tempOf } = useCrm();
+  const { leadById, data, tempOf, perms, deleteLeads } = useCrm();
   const lead = leadId ? leadById(leadId) : undefined;
+  const { confirm, dialog } = useConfirm();
   const [tab, setTab] = useState<Tab>("overview");
   const [calling, setCalling] = useState(false);
   const [booking, setBooking] = useState(false);
@@ -144,6 +148,27 @@ export function LeadDrawer({
                     <IconButton label="Edit lead" size="lg" onClick={() => onEdit(lead)}>
                       <Pencil className="h-4 w-4" />
                     </IconButton>
+                    {perms.deleteLeads && (
+                      <IconButton
+                        label="Delete lead"
+                        size="lg"
+                        className="text-rose-600 hover:bg-rose-50"
+                        onClick={() =>
+                          confirm({
+                            title: `Delete ${lead.businessName}?`,
+                            body: <DeleteLeadsWarning count={1} />,
+                            confirmLabel: "Delete lead",
+                            danger: true,
+                            run: () => {
+                              deleteLeads([lead.id]);
+                              onClose();
+                            },
+                          })
+                        }
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </IconButton>
+                    )}
                   </div>
                 </div>
               )}
@@ -169,6 +194,7 @@ export function LeadDrawer({
         )}
       </Drawer>
       <MeetingModal open={booking} onClose={() => setBooking(false)} leadId={lead?.id} />
+      {dialog}
     </>
   );
 }

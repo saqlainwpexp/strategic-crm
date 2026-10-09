@@ -18,6 +18,8 @@ export function permissionsFor(role: Role) {
     editScripts: manager,
     /** Email marketing (campaigns, automations, inbox, sending accounts). */
     emailMarketing: manager,
+    /** Permanently delete leads (and their calls, meetings, payments, email history). */
+    deleteLeads: manager,
     /** Super Admin only: branding, custom fields, pools, settings. */
     admin: role === "SUPER_ADMIN",
   };

@@ -17,7 +17,7 @@ import {
   type Edge,
   type Node,
 } from "@xyflow/react";
-import { ArrowLeft, Check, CircleAlert, Clock, Pause, Play, Search, Trash2, UserPlus, X } from "lucide-react";
+import { ArrowLeft, Check, CircleAlert, Clock, Copy, Pause, Play, Search, Trash2, UserPlus, X } from "lucide-react";
 import { Card, CardHeader } from "@/components/ui/Card";
 import { Button, IconButton } from "@/components/ui/Button";
 import { Toggle } from "@/components/ui/Form";
@@ -42,7 +42,8 @@ import {
   type FlowNodeType,
 } from "@/lib/automation-flow";
 import type { AutomationView, EmailAccountView, EnrollmentView, TemplateView } from "@/lib/email-types";
-import { deleteAutomationAction, enrollContactsAction, saveAutomationAction, searchContactsAction, setAutomationStatusAction, stopEnrollmentAction } from "@/server/email/actions";
+import { RowMenu } from "@/components/ui/RowMenu";
+import { deleteAutomationAction, duplicateAutomationAction, enrollContactsAction, saveAutomationAction, searchContactsAction, setAutomationStatusAction, stopEnrollmentAction } from "@/server/email/actions";
 import { NODE_META, nodeTypes, TriggerCtx } from "./flow/FlowNodes";
 import { NodePanel } from "./flow/NodePanel";
 import { ALL_INBOXES, SenderPicker } from "./SenderPicker";
@@ -205,24 +206,33 @@ function Editor({ automation, enrollments, accounts, templates, tags, reps }: Pr
         </div>
         <div className="flex flex-wrap items-center gap-3">
           {automation && (
-            <IconButton
-              label="Delete workflow"
-              size="lg"
-              variant="white"
-              onClick={() =>
-                confirm({
-                  title: `Delete “${automation.name}”?`,
-                  body: "Everyone in it stops receiving its emails, and its stats are deleted.",
-                  confirmLabel: "Delete",
-                  danger: true,
-                  run: async () => {
-                    if (await run("del", deleteAutomationAction(automation.id), "Workflow deleted")) router.push("/email/automations");
+            <RowMenu
+              items={[
+                {
+                  icon: Copy,
+                  label: "Duplicate",
+                  onClick: async () => {
+                    const r = await run("dup", duplicateAutomationAction(automation.id), "Workflow duplicated");
+                    if (r) router.push(`/email/automations/${r.id}`);
                   },
-                })
-              }
-            >
-              <Trash2 className="h-4 w-4" />
-            </IconButton>
+                },
+                {
+                  icon: Trash2,
+                  label: "Delete",
+                  danger: true,
+                  onClick: () =>
+                    confirm({
+                      title: `Delete “${automation.name}”?`,
+                      body: "Everyone in it stops receiving its emails, and its stats are deleted.",
+                      confirmLabel: "Delete workflow",
+                      danger: true,
+                      run: async () => {
+                        if (await run("del", deleteAutomationAction(automation.id), "Workflow deleted")) router.push("/email/automations");
+                      },
+                    }),
+                },
+              ]}
+            />
           )}
           <Button variant="secondary" size="lg" onClick={save} disabled={busy === "save" || !name.trim()}>
             {busy === "save" ? "Saving…" : "Save"}

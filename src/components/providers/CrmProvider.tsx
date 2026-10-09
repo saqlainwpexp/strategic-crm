@@ -25,6 +25,7 @@ import { permissionsFor, type Permissions } from "@/lib/access";
 import { uid } from "@/lib/utils";
 import {
   assignLeadsAction,
+  deleteLeadsAction,
   clockInAction,
   clockOutAction,
   createLeadAction,
@@ -70,6 +71,8 @@ type CrmContext = {
   addLead: (lead: Omit<Lead, "id" | "createdAt">) => Lead;
   importLeads: (leads: Omit<Lead, "id" | "createdAt">[], meta: Omit<CsvImport, "id" | "createdAt" | "uploadedById">, tags?: string[]) => void;
   assignLeads: (ids: string[], patch: { assignedToId?: string | null; poolId?: string | null }) => void;
+  /** Permanently delete leads (managers/super admin) — gone from calling and email alike. */
+  deleteLeads: (ids: string[]) => void;
   logCall: (input: LogCallInput) => void;
 
   addMeeting: (m: Omit<Meeting, "id">) => void;
@@ -205,6 +208,21 @@ export function CrmProvider({
             router.refresh();
           }
         );
+      },
+
+      deleteLeads: (ids) => {
+        const gone = new Set(ids);
+        setData((d) => ({
+          ...d,
+          leads: d.leads.filter((l) => !gone.has(l.id)),
+          calls: d.calls.filter((c) => !gone.has(c.leadId)),
+          meetings: d.meetings.filter((m) => !gone.has(m.leadId)),
+          payments: d.payments.filter((p) => !gone.has(p.leadId)),
+        }));
+        persist(deleteLeadsAction(ids), (res) => {
+          notify(`${res.deleted} lead${res.deleted === 1 ? "" : "s"} deleted`);
+          router.refresh();
+        });
       },
 
       assignLeads: (ids, p) => {

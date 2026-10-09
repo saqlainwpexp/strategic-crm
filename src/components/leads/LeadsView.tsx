@@ -2,7 +2,9 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { ChevronLeft, ChevronRight, Flame, PhoneCall, PhoneOff, Plus, SearchX, Upload, Users, AlarmClock } from "lucide-react";
+import { ChevronLeft, ChevronRight, Flame, PhoneCall, PhoneOff, Plus, SearchX, Trash2, Upload, Users, AlarmClock } from "lucide-react";
+import { useConfirm } from "@/components/ui/ConfirmDialog";
+import { DeleteLeadsWarning } from "@/components/shared/DeleteLeadsWarning";
 import { useCrm } from "@/components/providers/CrmProvider";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
@@ -34,7 +36,8 @@ type SortKey = "score" | "newest" | "followup" | "value" | "name";
 const PAGE_SIZE = 25;
 
 export function LeadsView() {
-  const { data, viewer, perms, userById, tempOf, assignLeads } = useCrm();
+  const { data, viewer, perms, userById, tempOf, assignLeads, deleteLeads } = useCrm();
+  const { confirm, dialog } = useConfirm();
   const router = useRouter();
   const pathname = usePathname();
   const params = useSearchParams();
@@ -338,6 +341,26 @@ export function LeadsView() {
                 }}
                 options={data.pools.map((p) => ({ value: p.id, label: p.name }))}
               />
+              {perms.deleteLeads && (
+                <button
+                  onClick={() => {
+                    const ids = [...selected];
+                    confirm({
+                      title: `Delete ${ids.length} lead${ids.length === 1 ? "" : "s"}?`,
+                      body: <DeleteLeadsWarning count={ids.length} />,
+                      confirmLabel: `Delete ${ids.length} lead${ids.length === 1 ? "" : "s"}`,
+                      danger: true,
+                      run: () => {
+                        deleteLeads(ids);
+                        setSelected(new Set());
+                      },
+                    });
+                  }}
+                  className="flex h-8 items-center gap-1.5 rounded-full bg-rose-500/90 px-3.5 text-[12.5px] text-white transition-colors hover:bg-rose-500"
+                >
+                  <Trash2 className="h-3.5 w-3.5" /> Delete
+                </button>
+              )}
               <button onClick={() => setSelected(new Set())} className="h-8 rounded-full px-3 text-[12.5px] text-white/70 hover:text-white">
                 Clear
               </button>
@@ -541,6 +564,7 @@ export function LeadsView() {
         }}
       />
       <LeadForm open={formOpen} onClose={() => setFormOpen(false)} lead={editing} />
+      {dialog}
       {perms.importLeads && (
         <CsvImportModal
           open={importOpen}

@@ -616,3 +616,24 @@ export async function clockOutAction() {
     return { clockOut: now.toISOString() };
   });
 }
+
+/**
+ * Permanently delete leads — from both the Cold Calling CRM and Email Marketing.
+ * Their calls, meetings, payments and workflow enrolments go too; sent-email stats and
+ * inbox replies are kept but no longer linked to a lead. Managers and super admin only.
+ */
+export async function deleteLeadsAction(leadIds: string[]) {
+  return run("deleteLeads", async () => {
+    const me = await requireActionUser();
+    if (!permissionsFor(me.role).deleteLeads) throw new Forbidden("Only managers can delete leads.");
+    const ids = z.array(id).min(1).max(5000).parse(leadIds);
+    const doomed = await prisma.lead.findMany({ where: { id: { in: ids } }, select: { id: true, businessName: true } });
+    const res = await prisma.lead.deleteMany({ where: { id: { in: doomed.map((l) => l.id) } } });
+    await audit(me.id, "leads.delete", "Lead", doomed.length === 1 ? doomed[0].id : undefined, {
+      count: res.count,
+      names: doomed.slice(0, 25).map((l) => l.businessName),
+    });
+    revalidatePath("/", "layout");
+    return { deleted: res.count };
+  });
+}

@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { GitBranch, Mail, MessageSquareReply, PhoneForwarded, Plus, Workflow, Zap, type LucideIcon } from "lucide-react";
+import { Copy, GitBranch, Mail, MessageSquareReply, Pencil, PhoneForwarded, Plus, Trash2, Workflow, Zap, type LucideIcon } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Toggle } from "@/components/ui/Form";
@@ -12,7 +12,9 @@ import { STAGE_LABELS, type PipelineStage } from "@/lib/constants";
 import { pct, TRIGGER_LABELS } from "@/lib/email";
 import { flowSummary } from "@/lib/automation-flow";
 import type { AutomationView } from "@/lib/email-types";
-import { setAutomationStatusAction } from "@/server/email/actions";
+import { deleteAutomationAction, duplicateAutomationAction, renameAutomationAction, setAutomationStatusAction } from "@/server/email/actions";
+import { RenameModal, RowMenu } from "@/components/ui/RowMenu";
+import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { TintPill, useEmailAction } from "./kit";
 
 export function triggerText(a: Pick<AutomationView, "trigger" | "triggerValue">) {
@@ -31,6 +33,8 @@ export function AutomationsView({ automations }: { automations: AutomationView[]
   const router = useRouter();
   const { run, busy } = useEmailAction();
   const [picking, setPicking] = useState(false);
+  const [renaming, setRenaming] = useState<AutomationView | null>(null);
+  const { confirm, dialog } = useConfirm();
 
   return (
     <div>
@@ -74,7 +78,7 @@ export function AutomationsView({ automations }: { automations: AutomationView[]
                       </span>
                     </p>
                   </div>
-                  <div onClick={(e) => e.stopPropagation()}>
+                  <div className="flex items-center gap-3" onClick={(e) => e.stopPropagation()}>
                     {a.status === "DRAFT" ? (
                       <TintPill color="#A3A3A3">Draft</TintPill>
                     ) : (
@@ -85,6 +89,34 @@ export function AutomationsView({ automations }: { automations: AutomationView[]
                         label={<span className="text-[12.5px] text-neutral-500">{active ? "Live" : "Paused"}</span>}
                       />
                     )}
+                    <RowMenu
+                      items={[
+                        { icon: Pencil, label: "Rename", onClick: () => setRenaming(a) },
+                        {
+                          icon: Copy,
+                          label: "Duplicate",
+                          onClick: async () => {
+                            const r = await run("dup", duplicateAutomationAction(a.id), "Workflow duplicated");
+                            if (r) router.push(`/email/automations/${r.id}`);
+                          },
+                        },
+                        {
+                          icon: Trash2,
+                          label: "Delete",
+                          danger: true,
+                          onClick: () =>
+                            confirm({
+                              title: `Delete “${a.name}”?`,
+                              body: a.counts.active
+                                ? `${a.counts.active} contact${a.counts.active === 1 ? " is" : "s are"} still in it and will stop receiving its emails. Its stats are deleted too.`
+                                : "Its stats are deleted too. Contacts aren't affected.",
+                              confirmLabel: "Delete workflow",
+                              danger: true,
+                              run: () => run("del", deleteAutomationAction(a.id), "Workflow deleted"),
+                            }),
+                        },
+                      ]}
+                    />
                   </div>
                 </div>
 
@@ -100,6 +132,14 @@ export function AutomationsView({ automations }: { automations: AutomationView[]
         </div>
       )}
 
+      {dialog}
+      <RenameModal
+        open={!!renaming}
+        title="Rename workflow"
+        initial={renaming?.name ?? ""}
+        onClose={() => setRenaming(null)}
+        onSave={(name) => run("rename", renameAutomationAction(renaming!.id, name), "Workflow renamed")}
+      />
       <Modal open={picking} onClose={() => setPicking(false)} title="New workflow" subtitle="Pick a starting point — you can change every step on the canvas." className="max-w-[640px]">
         <div className="flex flex-col gap-3">
           {STARTERS.map((s) => (

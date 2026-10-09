@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ArrowLeft, CalendarClock, Check, LayoutTemplate, Send } from "lucide-react";
+import { ArrowLeft, CalendarClock, Check, Copy, LayoutTemplate, Send, Trash2 } from "lucide-react";
 import { Card, CardHeader } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Field, Input, Select, Toggle } from "@/components/ui/Form";
@@ -13,7 +13,9 @@ import { cn } from "@/lib/utils";
 import { dayKey, formatDateTime, shiftDayKey, todayKey, tzAbbrev, zonedISO } from "@/lib/date";
 import { EMPTY_AUDIENCE, isValidEmail, type AudienceFilter } from "@/lib/email";
 import type { AudienceOptions, CampaignView, EmailAccountView, TemplateView } from "@/lib/email-types";
-import { launchCampaignAction, saveCampaignAction, setCampaignStatusAction } from "@/server/email/actions";
+import { deleteCampaignAction, duplicateCampaignAction, launchCampaignAction, saveCampaignAction, setCampaignStatusAction } from "@/server/email/actions";
+import { RowMenu } from "@/components/ui/RowMenu";
+import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { AudienceBuilder } from "./AudienceBuilder";
 import { EmailEditor } from "./EmailEditor";
 import { EmailPreview } from "./EmailPreview";
@@ -51,6 +53,7 @@ export function CampaignEditor({
   const router = useRouter();
   const params = useSearchParams();
   const { run, busy } = useEmailAction();
+  const { confirm, dialog } = useConfirm();
   const usable = accounts.filter((a) => a.status !== "DISCONNECTED");
 
   const [f, setF] = useState<Form>(() => {
@@ -141,6 +144,34 @@ export function CampaignEditor({
           <Button variant="secondary" size="lg" onClick={save} disabled={busy === "save" || !f.name.trim()}>
             {busy === "save" ? "Saving…" : "Save draft"}
           </Button>
+          {campaign && (
+            <RowMenu
+              items={[
+                {
+                  icon: Copy,
+                  label: "Duplicate",
+                  onClick: async () => {
+                    const r = await run("dup", duplicateCampaignAction(campaign.id), "Copied to a new draft");
+                    if (r) router.push(`/email/campaigns/${r.id}`);
+                  },
+                },
+                {
+                  icon: Trash2,
+                  label: "Delete",
+                  danger: true,
+                  onClick: () =>
+                    confirm({
+                      title: `Delete “${campaign.name}”?`,
+                      confirmLabel: "Delete campaign",
+                      danger: true,
+                      run: async () => {
+                        if (await run("del", deleteCampaignAction(campaign.id), "Campaign deleted")) router.push("/email/campaigns");
+                      },
+                    }),
+                },
+              ]}
+            />
+          )}
         </div>
       </div>
 
@@ -296,6 +327,7 @@ export function CampaignEditor({
         }}
         busy={busy === "launch" || busy === "save"}
       />
+      {dialog}
     </div>
   );
 }

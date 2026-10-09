@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { Copy, LayoutTemplate, Plus, Send, Trash2 } from "lucide-react";
+import { Copy, LayoutTemplate, Pencil, Plus, Send, Trash2 } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { Button, IconButton, buttonClass } from "@/components/ui/Button";
 import { Field, Input } from "@/components/ui/Form";
@@ -14,7 +14,8 @@ import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { relativeTime } from "@/lib/date";
 import { STARTER_TEMPLATES } from "@/lib/email-starters";
 import type { EmailAccountView, TemplateView } from "@/lib/email-types";
-import { deleteTemplateAction, saveTemplateAction } from "@/server/email/actions";
+import { deleteTemplateAction, duplicateTemplateAction, renameTemplateAction, saveTemplateAction } from "@/server/email/actions";
+import { RenameModal, RowMenu } from "@/components/ui/RowMenu";
 import { EmailEditor } from "./EmailEditor";
 import { EmailPreview } from "./EmailPreview";
 import { SendTestButton } from "./SendTestButton";
@@ -30,6 +31,7 @@ export function TemplatesView({ templates, accounts }: { templates: TemplateView
   const { confirm, dialog } = useConfirm();
   const [draft, setDraft] = useState<Draft | null>(null);
   const [starterOpen, setStarterOpen] = useState(false);
+  const [renaming, setRenaming] = useState<TemplateView | null>(null);
 
   useEffect(() => {
     if (params.get("new")) {
@@ -76,16 +78,19 @@ export function TemplatesView({ templates, accounts }: { templates: TemplateView
                   <Link href={`/email/campaigns/new?template=${t.id}`} className={buttonClass("ghost", "sm")}>
                     <Send className="h-3.5 w-3.5" /> Use
                   </Link>
-                  <IconButton label="Duplicate" size="sm" onClick={() => setDraft({ name: `${t.name} (copy)`, subject: t.subject, html: t.html })}>
-                    <Copy className="h-4 w-4" />
-                  </IconButton>
-                  <IconButton
-                    label="Delete template"
-                    size="sm"
-                    onClick={() => confirm({ title: `Delete “${t.name}”?`, body: "Campaigns already using it keep their copy.", confirmLabel: "Delete", danger: true, run: () => run("del", deleteTemplateAction(t.id), "Template deleted") })}
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </IconButton>
+                  <RowMenu
+                    items={[
+                      { icon: Pencil, label: "Rename", onClick: () => setRenaming(t) },
+                      { icon: Copy, label: "Duplicate", onClick: () => run("dup", duplicateTemplateAction(t.id), "Template duplicated") },
+                      {
+                        icon: Trash2,
+                        label: "Delete",
+                        danger: true,
+                        onClick: () =>
+                          confirm({ title: `Delete “${t.name}”?`, body: "Campaigns and workflows already using it keep their own copy.", confirmLabel: "Delete", danger: true, run: () => run("del", deleteTemplateAction(t.id), "Template deleted") }),
+                      },
+                    ]}
+                  />
                 </div>
               </div>
             </Card>
@@ -103,6 +108,13 @@ export function TemplatesView({ templates, accounts }: { templates: TemplateView
       />
       <TemplateEditor draft={draft} accounts={accounts} onClose={() => setDraft(null)} />
       {dialog}
+      <RenameModal
+        open={!!renaming}
+        title="Rename template"
+        initial={renaming?.name ?? ""}
+        onClose={() => setRenaming(null)}
+        onSave={(name) => run("rename", renameTemplateAction(renaming!.id, name), "Template renamed")}
+      />
     </div>
   );
 }
