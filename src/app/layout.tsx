@@ -32,8 +32,11 @@ export default async function RootLayout({ children }: { children: React.ReactNo
       lang="en"
       className={`${inter.variable} ${jakarta.variable} ${dmsans.variable} ${manrope.variable}`}
       style={themeVars(branding) as React.CSSProperties}
+      // Browser extensions (ColorZilla, Grammarly, password managers…) add attributes to
+      // <html>/<body> before React loads; ignore those so they don't trigger hydration errors.
+      suppressHydrationWarning
     >
-      <body className="font-sans antialiased">
+      <body className="font-sans antialiased" suppressHydrationWarning>
         <BrandingProvider initial={branding}>{children}</BrandingProvider>
       </body>
     </html>
