@@ -12,7 +12,8 @@ import { AuthError, requireActionUser } from "../session";
 import { getBranding } from "../settings";
 import { permissionsFor } from "@/lib/access";
 import { PIPELINE_STAGES } from "@/lib/constants";
-import { isValidEmail, normalizeAudience, normalizeSteps, normalizeTags, SAMPLE_MERGE, type AudienceFilter } from "@/lib/email";
+import { isValidEmail, normalizeAudience, normalizeTags, SAMPLE_MERGE, type AudienceFilter } from "@/lib/email";
+import { normalizeFlow, validateFlow } from "@/lib/automation-flow";
 import type { ActionResult } from "../actions";
 import type { ContactActivity, ThreadMessage } from "@/lib/email-types";
 import { encryptSecret } from "./crypto";
@@ -23,6 +24,7 @@ import { audienceWhere, resolveAudience } from "./audience";
 import { materializeCampaign, runEmailTick } from "./worker";
 import { enrollLeads, fireTrigger } from "./triggers";
 import { unsubscribeLead } from "./unsubscribe";
+import { handOffToCalls } from "./handoff";
 import { loadContactActivity, loadThreadMessages } from "./load";
 
 // ─── Plumbing ────────────────────────────────────────────────
@@ -57,6 +59,15 @@ const ids = z.array(id).max(50_000);
 const str = (max: number) => z.string().max(max);
 const html = z.string().max(500_000);
 const email = z.string().trim().max(254).refine(isValidEmail, "Invalid email");
+/** Sending inbox ids, or ["*"] for "rotate across every connected inbox". */
+const senderIds = z.array(z.union([id, z.literal("*")])).max(500);
+
+async function usableSenders(raw: unknown) {
+  const ids = senderIds.parse(raw);
+  return prisma.emailAccount.count({
+    where: { status: { in: ["CONNECTED", "PENDING"] }, ...(ids.includes("*") ? {} : { id: { in: ids.filter((x) => x !== "*") } }) },
+  });
+}
 
 // ─── Sending accounts ────────────────────────────────────────
 
@@ -110,6 +121,8 @@ export async function saveEmailAccountAction(input: z.infer<typeof accountInput>
       accountId = created.id;
     }
     await audit(me.id, a.id ? "email.account_update" : "email.account_create", "EmailAccount", accountId, { email: data.email });
+    const domain = data.email.split("@")[1];
+    if (domain) await prisma.emailDomain.upsert({ where: { domain }, create: { domain }, update: {} });
     // Check the connection straight away so the status is meaningful.
     const test = await testAccount(accountId!);
     done();
@@ -277,7 +290,7 @@ const campaignInput = z.object({
   html,
   fromName: str(120),
   replyTo: z.union([z.literal(""), email]),
-  accountIds: z.array(id).max(50),
+  accountIds: senderIds,
   audience: audienceInput,
   trackOpens: z.boolean(),
   trackClicks: z.boolean(),
@@ -332,9 +345,7 @@ async function assertReady(campaignId: string) {
   if (!c) throw new Invalid("That campaign no longer exists.");
   if (!c.subject.trim()) throw new Invalid("Add a subject line first.");
   if (c.html.replace(/<[^>]+>/g, "").trim().length < 2) throw new Invalid("The email body is empty.");
-  const accountIds = z.array(id).parse(c.accountIds);
-  const usable = await prisma.emailAccount.count({ where: { id: { in: accountIds }, status: { in: ["CONNECTED", "PENDING"] } } });
-  if (!usable) throw new Invalid("Choose at least one connected sending account.");
+  if (!(await usableSenders(c.accountIds))) throw new Invalid("Choose at least one connected inbox to send from.");
   if ((await resolveAudience(normalizeAudience(c.audience))).length === 0) throw new Invalid("No subscribed contacts match this audience.");
   return c;
 }
@@ -431,18 +442,13 @@ export async function deleteCampaignAction(campaignId: string) {
 
 // ─── Automations ─────────────────────────────────────────────
 
-const stepInput = z.discriminatedUnion("type", [
-  z.object({ id: str(40), type: z.literal("email"), subject: str(300), html }),
-  z.object({ id: str(40), type: z.literal("wait"), amount: z.number().int().min(1).max(365), unit: z.enum(["minutes", "hours", "days"]) }),
-]);
-
 const automationInput = z.object({
   id: id.optional(),
   name: str(160).min(1),
-  trigger: z.enum(["MANUAL", "LEAD_CREATED", "STAGE_CHANGED", "TAG_ADDED"]),
+  trigger: z.enum(["MANUAL", "LEAD_CREATED", "STAGE_CHANGED", "TAG_ADDED", "EMAIL_REPLIED"]),
   triggerValue: str(60),
-  steps: z.array(stepInput).max(30),
-  accountIds: z.array(id).max(50),
+  flow: z.object({ nodes: z.array(z.unknown()).max(200), edges: z.array(z.unknown()).max(400) }),
+  accountIds: senderIds,
   stopOnReply: z.boolean(),
 });
 
@@ -450,13 +456,14 @@ export async function saveAutomationAction(input: z.infer<typeof automationInput
   return run("saveAutomation", async () => {
     await requireEmailUser();
     const a = automationInput.parse(input);
+    if (JSON.stringify(a.flow).length > 2_000_000) throw new Invalid("This workflow is too large.");
     if (a.trigger === "STAGE_CHANGED" && !(PIPELINE_STAGES as readonly string[]).includes(a.triggerValue)) throw new Invalid("Choose the pipeline stage that starts this automation.");
     if (a.trigger === "TAG_ADDED" && !a.triggerValue.trim()) throw new Invalid("Enter the tag that starts this automation.");
     const data = {
       name: a.name.trim(),
       trigger: a.trigger,
       triggerValue: a.trigger === "STAGE_CHANGED" || a.trigger === "TAG_ADDED" ? a.triggerValue.trim() : "",
-      steps: normalizeSteps(a.steps) as unknown as Prisma.InputJsonValue,
+      flow: normalizeFlow(a.flow) as unknown as Prisma.InputJsonValue,
       accountIds: a.accountIds,
       stopOnReply: a.stopOnReply,
     };
@@ -473,12 +480,10 @@ export async function setAutomationStatusAction(automationId: string, status: "A
     const s = z.enum(["ACTIVE", "PAUSED"]).parse(status);
     if (s === "ACTIVE") {
       const a = await prisma.automation.findUniqueOrThrow({ where: { id: aid } });
-      const steps = normalizeSteps(a.steps);
-      if (!steps.some((x) => x.type === "email")) throw new Invalid("Add at least one email step first.");
-      if (steps.some((x) => x.type === "email" && (!x.subject.trim() || x.html.replace(/<[^>]+>/g, "").trim().length < 2)))
-        throw new Invalid("Every email step needs a subject and a message.");
-      const accountIds = z.array(id).parse(a.accountIds);
-      if (!(await prisma.emailAccount.count({ where: { id: { in: accountIds } } }))) throw new Invalid("Choose at least one sending account.");
+      const flow = normalizeFlow(a.flow);
+      const problems = validateFlow(flow);
+      if (problems.length) throw new Invalid(problems[0]);
+      if (flow.nodes.some((n) => n.type === "email") && !(await usableSenders(a.accountIds))) throw new Invalid("Choose at least one connected inbox to send from.");
     }
     await prisma.automation.update({ where: { id: aid }, data: { status: s } });
     await audit(me.id, `email.automation_${s.toLowerCase()}`, "Automation", aid);
@@ -696,3 +701,134 @@ export async function processQueueNowAction() {
   });
 }
 
+
+// ─── Hand-off to sales calls ─────────────────────────────────
+
+/** Inbox → "Send to sales calls": the replying contact goes to a rep's call queue. */
+export async function handoffThreadAction(threadId: string, repId: string | null) {
+  return run("handoffThread", async () => {
+    const me = await requireEmailUser();
+    const tid = id.parse(threadId);
+    const rep = id.nullable().parse(repId);
+    const thread = await prisma.inboxThread.findUnique({ where: { id: tid } });
+    if (!thread) throw new Invalid("That conversation no longer exists.");
+    let leadId = thread.leadId;
+    if (!leadId) {
+      // A reply from someone who isn't in the CRM yet — create them as a lead.
+      const domain = thread.contactEmail.split("@")[1] ?? "";
+      const lead = await prisma.lead.create({
+        data: {
+          businessName: (thread.contactName || domain.split(".")[0] || thread.contactEmail).slice(0, 200),
+          decisionMakerName: thread.contactName || null,
+          email: thread.contactEmail,
+          website: domain || null,
+          source: "Email reply",
+        },
+      });
+      leadId = lead.id;
+      await prisma.inboxThread.update({ where: { id: tid }, data: { leadId } });
+    }
+    const res = await handOffToCalls(leadId, { repId: rep, note: `Replied to “${thread.subject}” — call them.` });
+    await prisma.automationEnrollment.updateMany({
+      where: { leadId, status: "ACTIVE" },
+      data: { status: "STOPPED", stopReason: "Sent to sales calls", finishedAt: new Date(), nextRunAt: null },
+    });
+    await audit(me.id, "email.handoff", "Lead", leadId, { from: "inbox" });
+    done();
+    revalidatePath("/loadboard");
+    const user = res?.assignedToId ? await prisma.user.findUnique({ where: { id: res.assignedToId }, select: { name: true } }) : null;
+    return { leadId, repName: user?.name ?? null };
+  });
+}
+
+export async function handoffContactsAction(leadIds: string[], repId: string | null) {
+  return run("handoffContacts", async () => {
+    const me = await requireEmailUser();
+    const list = ids.min(1).max(1000).parse(leadIds);
+    const rep = id.nullable().parse(repId);
+    for (const l of list) await handOffToCalls(l, { repId: rep, note: "Sent from email outreach — call them." });
+    await audit(me.id, "email.handoff", "Lead", undefined, { count: list.length, from: "contacts" });
+    done();
+    return { count: list.length };
+  });
+}
+
+// ─── Bulk inbox setup (many domains × inboxes) ───────────────
+
+const bulkInput = z.object({
+  provider: str(60),
+  smtpHost: str(200).min(3),
+  smtpPort: z.number().int().min(1).max(65535),
+  imapHost: str(200),
+  imapPort: z.number().int().min(1).max(65535),
+  imapEnabled: z.boolean(),
+  dailyLimit: z.number().int().min(1).max(5000),
+  minDelaySec: z.number().int().min(5).max(3600),
+  defaultFromName: str(120),
+  /** One inbox per line: email, password[, From Name] */
+  lines: str(200_000),
+});
+
+export async function bulkAddInboxesAction(input: z.infer<typeof bulkInput>) {
+  return run("bulkAddInboxes", async () => {
+    const me = await requireEmailUser();
+    const b = bulkInput.parse(input);
+    const rows = b.lines
+      .split(/\r?\n/)
+      .map((l) => l.trim())
+      .filter((l) => l && !l.startsWith("#"))
+      .slice(0, 200)
+      .map((l) => {
+        const [mail, password, ...name] = l.split(/\s*[,;\t]\s*/);
+        return { email: (mail ?? "").toLowerCase(), password: password ?? "", fromName: name.join(" ").trim() || b.defaultFromName.trim() };
+      });
+    if (!rows.length) throw new Invalid("Add at least one line: email, password");
+    const results: { email: string; ok: boolean; error?: string }[] = [];
+    const existing = new Set((await prisma.emailAccount.findMany({ select: { email: true } })).map((a) => a.email.toLowerCase()));
+    const created: string[] = [];
+    for (const r of rows) {
+      if (!isValidEmail(r.email)) { results.push({ email: r.email || "(blank)", ok: false, error: "Not a valid email address" }); continue; }
+      if (!r.password) { results.push({ email: r.email, ok: false, error: "Missing password" }); continue; }
+      if (existing.has(r.email)) { results.push({ email: r.email, ok: false, error: "Already added" }); continue; }
+      existing.add(r.email);
+      const acc = await prisma.emailAccount.create({
+        data: {
+          name: r.email,
+          email: r.email,
+          fromName: r.fromName || r.email.split("@")[0],
+          provider: b.provider,
+          smtpHost: b.smtpHost.trim(),
+          smtpPort: b.smtpPort,
+          smtpSecure: b.smtpPort === 465,
+          smtpUser: r.email,
+          passwordEnc: encryptSecret(r.password),
+          imapEnabled: b.imapEnabled,
+          imapHost: b.imapHost.trim(),
+          imapPort: b.imapPort,
+          imapSecure: b.imapPort !== 143,
+          dailyLimit: b.dailyLimit,
+          minDelaySec: b.minDelaySec,
+        },
+      });
+      created.push(acc.id);
+      results.push({ email: r.email, ok: true });
+    }
+    // Make sure every new domain is listed for DNS checks.
+    for (const d of new Set(results.filter((r) => r.ok).map((r) => r.email.split("@")[1]))) {
+      await prisma.emailDomain.upsert({ where: { domain: d }, create: { domain: d }, update: {} });
+    }
+    // Test connections a few at a time.
+    for (let i = 0; i < created.length; i += 4) {
+      const batch = await Promise.all(created.slice(i, i + 4).map((cid) => testAccount(cid).then((t) => ({ cid, t }))));
+      for (const { cid, t } of batch) {
+        if (!t.smtp) continue;
+        const acc = await prisma.emailAccount.findUnique({ where: { id: cid }, select: { email: true } });
+        const row = results.find((r) => r.email === acc?.email);
+        if (row) { row.ok = false; row.error = `Added, but couldn't connect: ${t.smtp}`; }
+      }
+    }
+    await audit(me.id, "email.inboxes_bulk_add", "EmailAccount", undefined, { count: created.length });
+    done();
+    return { added: created.length, results };
+  });
+}

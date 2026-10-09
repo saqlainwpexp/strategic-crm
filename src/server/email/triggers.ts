@@ -17,7 +17,7 @@ export async function fireTrigger(trigger: Exclude<AutomationTrigger, "MANUAL">,
   if (!leadIds.length) return;
   try {
     const autos = await prisma.automation.findMany({
-      where: { status: "ACTIVE", trigger, ...(trigger === "LEAD_CREATED" ? {} : { triggerValue: value }) },
+      where: { status: "ACTIVE", trigger, ...(trigger === "LEAD_CREATED" || trigger === "EMAIL_REPLIED" ? {} : { triggerValue: value }) },
       select: { id: true },
     });
     for (const a of autos) await enrollLeads(a.id, leadIds);

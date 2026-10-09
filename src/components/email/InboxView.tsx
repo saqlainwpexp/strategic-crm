@@ -13,14 +13,15 @@ import { Avatar } from "@/components/ui/Avatar";
 import { cn } from "@/lib/utils";
 import { dayKey, dayLabel, formatDateTime, formatTime, todayKey } from "@/lib/date";
 import type { EmailAccountView, ThreadMessage, ThreadSummary } from "@/lib/email-types";
-import { getThreadAction, replyThreadAction, syncInboxNowAction, updateThreadAction } from "@/server/email/actions";
+import { getThreadAction, handoffThreadAction, replyThreadAction, syncInboxNowAction, updateThreadAction } from "@/server/email/actions";
+import { HandoffButton } from "./HandoffButton";
 import { useEmailAction } from "./kit";
 
 type Folder = "inbox" | "unread" | "archived";
 
 const when = (iso: string) => (dayKey(iso) === todayKey() ? formatTime(iso) : dayLabel(dayKey(iso)));
 
-export function InboxView({ threads, accounts }: { threads: ThreadSummary[]; accounts: EmailAccountView[] }) {
+export function InboxView({ threads, accounts, reps }: { threads: ThreadSummary[]; accounts: EmailAccountView[]; reps: { id: string; name: string }[] }) {
   const router = useRouter();
   const pathname = usePathname();
   const params = useSearchParams();
@@ -143,7 +144,7 @@ export function InboxView({ threads, accounts }: { threads: ThreadSummary[]; acc
         {/* Conversation */}
         <div className={cn("min-w-0", !open && "hidden lg:block")}>
           {open ? (
-            <Conversation key={open.id} thread={open} onBack={() => setParams({ thread: null })} />
+            <Conversation key={open.id} thread={open} reps={reps} onBack={() => setParams({ thread: null })} />
           ) : (
             <EmptyState icon={Mail} title="Pick a conversation" body="Select a reply on the left to read it and answer." className="h-full" />
           )}
@@ -153,7 +154,7 @@ export function InboxView({ threads, accounts }: { threads: ThreadSummary[]; acc
   );
 }
 
-function Conversation({ thread, onBack }: { thread: ThreadSummary; onBack: () => void }) {
+function Conversation({ thread, reps, onBack }: { thread: ThreadSummary; reps: { id: string; name: string }[]; onBack: () => void }) {
   const { run, busy } = useEmailAction();
   const [messages, setMessages] = useState<ThreadMessage[] | null>(null);
   const [reply, setReply] = useState("");
@@ -180,7 +181,8 @@ function Conversation({ thread, onBack }: { thread: ThreadSummary; onBack: () =>
             {thread.contactEmail} → {thread.accountEmail}
           </p>
         </div>
-        <div className="flex items-center gap-1.5">
+        <div className="flex flex-wrap items-center gap-1.5">
+          <HandoffButton reps={reps} onHandoff={(rep) => handoffThreadAction(thread.id, rep)} />
           {thread.leadId && (
             <Link href={`/email/contacts?contact=${thread.leadId}`} className="inline-flex h-9 items-center gap-1.5 rounded-full bg-page px-4 text-[13px] hover:bg-neutral-200/80">
               <ExternalLink className="h-3.5 w-3.5" /> {thread.businessName ?? "Contact"}

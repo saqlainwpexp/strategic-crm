@@ -7,6 +7,7 @@ import { Prisma, type EmailAccount } from "@prisma/client";
 import { prisma } from "../db";
 import { decryptSecret } from "./crypto";
 import { friendlyMailError } from "./mailer";
+import { fireTrigger } from "./triggers";
 
 const FIRST_SYNC_MESSAGES = 30;
 const MAX_PER_SYNC = 100;
@@ -163,6 +164,7 @@ async function storeMessage(acc: EmailAccount, m: ParsedMail, fallbackId: string
     where: { id: thread.id },
     data: { unread: true, archived: false, lastMessageAt: sentAt > thread.lastMessageAt ? sentAt : thread.lastMessageAt, leadId: thread.leadId ?? leadId },
   });
+  if (leadId && !autoReply) await fireTrigger("EMAIL_REPLIED", [leadId]);
   return true;
 }
 

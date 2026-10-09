@@ -68,7 +68,7 @@ type CrmContext = {
   updateLead: (id: string, patch: Partial<Lead>) => void;
   moveLead: (id: string, stage: PipelineStage) => void;
   addLead: (lead: Omit<Lead, "id" | "createdAt">) => Lead;
-  importLeads: (leads: Omit<Lead, "id" | "createdAt">[], meta: Omit<CsvImport, "id" | "createdAt" | "uploadedById">) => void;
+  importLeads: (leads: Omit<Lead, "id" | "createdAt">[], meta: Omit<CsvImport, "id" | "createdAt" | "uploadedById">, tags?: string[]) => void;
   assignLeads: (ids: string[], patch: { assignedToId?: string | null; poolId?: string | null }) => void;
   logCall: (input: LogCallInput) => void;
 
@@ -186,7 +186,7 @@ export function CrmProvider({
         return lead;
       },
 
-      importLeads: (rows, meta) => {
+      importLeads: (rows, meta, tags = []) => {
         const created = rows.map((r) => ({ ...r, id: uid("lead"), createdAt: nowISO() }));
         setData((d) => ({
           ...d,
@@ -196,7 +196,8 @@ export function CrmProvider({
         persist(
           importLeadsAction(
             created.map(({ createdAt: _c, ...r }) => r),
-            meta
+            meta,
+            tags
           ),
           (res) => {
             notify(`${res.imported} leads imported`);

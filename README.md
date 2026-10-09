@@ -69,11 +69,14 @@ Everything brand-related is set by the Super Admin in **Admin → Branding**: ap
 
 Open it from the logo menu (top left). Managers and the super admin only.
 
-1. **Sending → Add mailbox** — connect a mailbox (Hostinger, Gmail, Outlook, Zoho or any SMTP/IMAP). Set a daily limit and the gap between emails; the password is stored encrypted.
-2. **Sending → Domains** — check SPF, DKIM and DMARC for your sending domain.
-3. **Campaigns → New campaign** — pick mailboxes, filter the audience (tags, stage, temperature, service, city, source, pool, rep), write the email with personalisation like `{{first_name}}`, send a test, then send now or schedule.
-4. **Automations** — multi-step follow-up sequences (email → wait → email) started by hand, by a new lead, a pipeline stage change, or a tag. They stop when the contact replies.
-5. **Inbox** — replies from every mailbox (synced over IMAP every 2 minutes); reply in the same thread.
+The setup follows a standard cold-email structure: **many domains × 2–3 inboxes each → one rotating sending engine ← lead lists (e.g. ListKit) → replies go to sales calls → paying clients.**
+
+1. **Sending** — your domains, each with its inboxes. Add inboxes one at a time or **Bulk add** (paste `email, password, From Name` per line). Each inbox has a daily limit and a gap between emails; the domain card shows SPF/DKIM/DMARC.
+2. **Contacts → Import CSV** — import ListKit (or any lead-list) exports. Columns like First/Last Name, Company, Title, LinkedIn and Email Status are recognised; addresses marked invalid are skipped. Tag the import (e.g. “ListKit — Dentists”).
+3. **Automations** — visual workflows on a canvas: trigger → send email → wait → condition (opened / clicked / replied / tag / stage / temperature / has phone) with Yes/No branches → actions (send to sales calls, tag, move stage, assign rep, unsubscribe). Triggers: by hand, new lead, stage change, tag added, or **contact replies**. Starters include a cold outreach sequence and “Replies → sales calls”.
+4. **Campaigns** — one-off sends to a filtered audience, rotating across all inboxes by default.
+5. **Inbox** — replies from every inbox; reply in-thread or **Send to sales calls** (lead becomes Interested, gets a rep, and appears at the top of their Loadboard queue).
+6. **Dashboard** — outreach pipeline from emailed → opened → replied → sent to calls → meetings → paying clients.
 
 A background engine inside the app sends queued emails at each mailbox's pace, tracks opens/clicks (signed links), handles one-click unsubscribe, and marks bounces. Unsubscribed and bounced contacts are never emailed again.
 

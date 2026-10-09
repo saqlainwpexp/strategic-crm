@@ -1,6 +1,7 @@
 // Plain (serialisable) shapes the email-marketing pages receive from the server.
 
-import type { AudienceFilter, AutomationStep, AutomationTrigger, ContactStatus } from "./email";
+import type { AudienceFilter, AutomationTrigger, ContactStatus } from "./email";
+import type { Flow } from "./automation-flow";
 import type { PipelineStage } from "./constants";
 
 export type AccountStatus = "PENDING" | "CONNECTED" | "ERROR" | "DISCONNECTED";
@@ -25,6 +26,8 @@ export type EmailAccountView = {
   sentToday: number;
   lastSyncAt: string | null;
   totalSent: number;
+  /** The part after @ — inboxes are grouped by domain. */
+  domain: string;
 };
 
 export type DomainCheck = "pass" | "fail" | "warn" | "pending";
@@ -100,7 +103,7 @@ export type AutomationView = {
   name: string;
   trigger: AutomationTrigger;
   triggerValue: string;
-  steps: AutomationStep[];
+  flow: Flow;
   accountIds: string[];
   stopOnReply: boolean;
   status: "DRAFT" | "ACTIVE" | "PAUSED";
@@ -116,6 +119,7 @@ export type EnrollmentView = {
   businessName: string;
   email: string;
   stepIndex: number;
+  nodeId: string | null;
   status: "ACTIVE" | "COMPLETED" | "STOPPED";
   stopReason: string | null;
   nextRunAt: string | null;
@@ -188,6 +192,9 @@ export type EmailOverview = {
   accounts: EmailAccountView[];
   activeAutomations: number;
   unreadReplies: number;
+  /** Outreach → sales calls → paying clients, for leads emailed in the period. */
+  funnel: { emailed: number; opened: number; replied: number; handedOff: number; meetings: number; clients: number };
+  domains: number;
 };
 
 /** Options the audience builder and filters offer (distinct values present in the CRM). */

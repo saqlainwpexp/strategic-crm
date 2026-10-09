@@ -6,11 +6,18 @@
 
 import { prisma } from "../db";
 import { getBranding } from "../settings";
-import { normalizeAudience, normalizeSteps, stringArray, WAIT_MS } from "@/lib/email";
+import { normalizeAudience, normalizeTags, WAIT_MS } from "@/lib/email";
+import { nextNodeId, normalizeFlow, triggerNode, type ActionKind, type ConditionKind } from "@/lib/automation-flow";
+import { PIPELINE_STAGES, tempFromScore, type PipelineStage } from "@/lib/constants";
+import type { Settings } from "@/lib/types";
+import { getSettings } from "../settings";
+import { handOffToCalls, nextRep } from "./handoff";
+import { fireTrigger } from "./triggers";
+import { unsubscribeLead } from "./unsubscribe";
 import { resolveAudience } from "./audience";
 import { buildEmail, deliver, friendlyMailError } from "./mailer";
 import { syncAllInboxes } from "./imap";
-import type { EmailAccount } from "@prisma/client";
+import type { AutomationEnrollment, EmailAccount } from "@prisma/client";
 
 const TICK_MS = 15_000;
 const IMAP_EVERY_MS = 2 * 60_000;
@@ -108,54 +115,164 @@ async function recoverStaleClaims() {
 
 // ─── Automations ─────────────────────────────────────────────
 
+const MAX_HOPS = 25; // instant steps (conditions/actions) run back-to-back in one pass
+
 async function advanceAutomations() {
   const now = new Date();
   const due = await prisma.automationEnrollment.findMany({
     where: { status: "ACTIVE", nextRunAt: { lte: now }, automation: { status: "ACTIVE" } },
-    include: { automation: true, lead: { select: { id: true, email: true, emailOptOut: true, emailBouncedAt: true } } },
+    include: { automation: { select: { id: true, flow: true, stopOnReply: true } } },
     orderBy: { nextRunAt: "asc" },
     take: 200,
   });
+  if (!due.length) return;
+  const settings = await getSettings();
 
   for (const e of due) {
-    const stop = (reason: string, status: "STOPPED" | "COMPLETED" = "STOPPED") =>
-      prisma.automationEnrollment.updateMany({
-        where: { id: e.id, status: "ACTIVE" },
-        data: { status, stopReason: reason, finishedAt: now, nextRunAt: null },
-      });
-
-    const email = (e.lead.email ?? "").trim();
-    if (!email.includes("@")) { await stop("No email address"); continue; }
-    if (e.lead.emailOptOut) { await stop("Unsubscribed"); continue; }
-    if (e.lead.emailBouncedAt) { await stop("Email bounced"); continue; }
-    if (e.automation.stopOnReply) {
-      const replied = await prisma.inboxMessage.count({
-        where: { direction: "IN", fromEmail: email.toLowerCase(), sentAt: { gt: e.enrolledAt } },
-      });
-      if (replied > 0) { await stop("Replied"); continue; }
+    // Lease the enrollment so a second process can't run the same step.
+    const lease = await prisma.automationEnrollment.updateMany({
+      where: { id: e.id, status: "ACTIVE", nodeId: e.nodeId, nextRunAt: e.nextRunAt },
+      data: { nextRunAt: new Date(now.getTime() + 10 * 60_000) },
+    });
+    if (lease.count !== 1) continue;
+    try {
+      await runEnrollment(e, settings);
+    } catch (err) {
+      console.error("[email] automation step failed", err);
+      await prisma.automationEnrollment.update({ where: { id: e.id }, data: { nextRunAt: new Date(Date.now() + 15 * 60_000) } });
     }
+  }
+}
 
-    const steps = normalizeSteps(e.automation.steps);
-    const step = steps[e.stepIndex];
-    if (!step) { await stop("Finished all steps", "COMPLETED"); continue; }
+type Due = AutomationEnrollment & { automation: { id: string; flow: unknown; stopOnReply: boolean } };
 
-    const nextRunAt = step.type === "wait" ? new Date(now.getTime() + step.amount * WAIT_MS[step.unit]) : now;
-    // Claim this step: only one process may advance it.
-    const claimed = await prisma.automationEnrollment.updateMany({
-      where: { id: e.id, status: "ACTIVE", stepIndex: e.stepIndex },
-      data: { stepIndex: e.stepIndex + 1, nextRunAt },
-    });
-    if (claimed.count !== 1 || step.type !== "email") continue;
+async function runEnrollment(e: Due, settings: Settings) {
+  const now = new Date();
+  const finish = (status: "STOPPED" | "COMPLETED", reason: string) =>
+    prisma.automationEnrollment.update({ where: { id: e.id }, data: { status, stopReason: reason, finishedAt: now, nextRunAt: null } });
 
-    await prisma.emailSend.create({
-      data: {
-        automationId: e.automationId,
-        stepIndex: e.stepIndex,
-        leadId: e.leadId,
+  const lead = await prisma.lead.findUnique({ where: { id: e.leadId } });
+  if (!lead) return finish("STOPPED", "Lead deleted");
+  const email = (lead.email ?? "").trim();
+  if (lead.emailOptOut) return finish("STOPPED", "Unsubscribed");
+  if (e.automation.stopOnReply && email.includes("@")) {
+    const replied = await prisma.inboxMessage.count({ where: { direction: "IN", fromEmail: email.toLowerCase(), sentAt: { gt: e.enrolledAt } } });
+    if (replied > 0) return finish("STOPPED", "Replied");
+  }
+
+  const flow = normalizeFlow(e.automation.flow);
+  let nodeId: string | null = e.nodeId ?? nextNodeId(flow, triggerNode(flow).id);
+  let steps = e.stepIndex;
+  const tags = normalizeTags(lead.tags);
+
+  const save = (next: string | null, stepIndex: number, at: Date) => {
+    if (!next) return finish("COMPLETED", "Finished the workflow");
+    return prisma.automationEnrollment.update({ where: { id: e.id }, data: { nodeId: next, stepIndex, nextRunAt: at } });
+  };
+
+  for (let hop = 0; hop < MAX_HOPS; hop++) {
+    const node = nodeId ? flow.nodes.find((n) => n.id === nodeId) : null;
+    if (!node) return finish("COMPLETED", "Finished the workflow");
+    const d = node.data;
+    steps++;
+
+    if (d.kind === "email") {
+      if (!email.includes("@") || lead.emailBouncedAt) return finish("STOPPED", lead.emailBouncedAt ? "Email bounced" : "No email address");
+      await prisma.emailSend.create({
+        data: { automationId: e.automationId, nodeId: node.id, stepIndex: steps, leadId: lead.id, email, subject: d.subject.slice(0, 500) },
+      });
+      // Pause one tick so a following condition sees this email's result.
+      return save(nextNodeId(flow, node.id), steps, now);
+    }
+    if (d.kind === "wait") {
+      return save(nextNodeId(flow, node.id), steps, new Date(now.getTime() + d.amount * WAIT_MS[d.unit]));
+    }
+    if (d.kind === "condition") {
+      const yes = await checkCondition(d.condition, d.value, {
+        leadId: lead.id,
         email,
-        subject: step.subject.slice(0, 500),
-      },
-    });
+        stage: lead.stage,
+        score: lead.leadScore,
+        phone: lead.phone ?? "",
+        tags,
+        automationId: e.automationId,
+        since: e.enrolledAt,
+        settings,
+      });
+      nodeId = nextNodeId(flow, node.id, yes ? "yes" : "no");
+      continue;
+    }
+    if (d.kind === "action") {
+      await runAction(d.action, d.value, lead.id, tags);
+      if (d.action === "unsubscribe") return finish("STOPPED", "Unsubscribed by workflow");
+      nodeId = nextNodeId(flow, node.id);
+      continue;
+    }
+    nodeId = nextNodeId(flow, node.id); // the trigger node itself
+  }
+  return save(nodeId, steps, now);
+}
+
+type CondCtx = { leadId: string; email: string; stage: string; score: number; phone: string; tags: string[]; automationId: string; since: Date; settings: Settings };
+
+async function checkCondition(kind: ConditionKind, value: string, c: CondCtx): Promise<boolean> {
+  switch (kind) {
+    case "opened":
+    case "clicked": {
+      const last = await prisma.emailSend.findFirst({ where: { automationId: c.automationId, leadId: c.leadId }, orderBy: { queuedAt: "desc" } });
+      return kind === "opened" ? !!last?.openedAt : !!last?.clickedAt;
+    }
+    case "replied": {
+      if (!c.email) return false;
+      const n = await prisma.inboxMessage.count({ where: { direction: "IN", fromEmail: c.email.toLowerCase(), sentAt: { gt: c.since } } });
+      return n > 0;
+    }
+    case "has_tag":
+      return c.tags.includes(value);
+    case "stage_is":
+      return c.stage === value;
+    case "temperature_is":
+      return tempFromScore(c.score, c.settings.hotThreshold, c.settings.warmThreshold) === value;
+    case "has_phone":
+      return c.phone.replace(/\D/g, "").length >= 7;
+  }
+}
+
+async function runAction(kind: ActionKind, value: string, leadId: string, tags: string[]) {
+  switch (kind) {
+    case "send_to_calls":
+      await handOffToCalls(leadId, { repId: value || null, note: "Email workflow handed this lead to calls." });
+      return;
+    case "add_tag":
+      if (value && !tags.includes(value)) {
+        tags.push(value);
+        await prisma.lead.update({ where: { id: leadId }, data: { tags } });
+        await fireTrigger("TAG_ADDED", [leadId], value);
+      }
+      return;
+    case "remove_tag":
+      if (tags.includes(value)) {
+        tags.splice(tags.indexOf(value), 1);
+        await prisma.lead.update({ where: { id: leadId }, data: { tags } });
+      }
+      return;
+    case "move_stage":
+      if ((PIPELINE_STAGES as readonly string[]).includes(value)) {
+        await prisma.lead.update({
+          where: { id: leadId },
+          data: { stage: value as PipelineStage, closedAt: value === "CLOSED_WON" ? new Date() : null },
+        });
+        await fireTrigger("STAGE_CHANGED", [leadId], value);
+      }
+      return;
+    case "assign_rep": {
+      const rep = value || (await nextRep());
+      if (rep) await prisma.lead.update({ where: { id: leadId }, data: { assignedToId: rep } });
+      return;
+    }
+    case "unsubscribe":
+      await unsubscribeLead(leadId);
+      return;
   }
 }
 
@@ -200,8 +317,8 @@ async function sendOne(acc: EmailAccount, agencyName: string): Promise<Outcome> 
     where: {
       status: "QUEUED",
       OR: [
-        { campaign: { status: "SENDING", accountIds: { array_contains: [acc.id] } } },
-        { automation: { status: "ACTIVE", accountIds: { array_contains: [acc.id] } } },
+        { campaign: { status: "SENDING", OR: [{ accountIds: { array_contains: [acc.id] } }, { accountIds: { array_contains: ["*"] } }] } },
+        { automation: { status: "ACTIVE", OR: [{ accountIds: { array_contains: [acc.id] } }, { accountIds: { array_contains: ["*"] } }] } },
       ],
     },
     orderBy: { queuedAt: "asc" },
@@ -227,8 +344,9 @@ async function sendOne(acc: EmailAccount, agencyName: string): Promise<Outcome> 
     const c = next.campaign;
     content = { subject: c.subject, html: c.html, previewText: c.previewText, fromName: c.fromName, replyTo: c.replyTo, trackOpens: c.trackOpens, trackClicks: c.trackClicks, addUnsubscribe: c.addUnsubscribe };
   } else if (next.automation) {
-    const step = normalizeSteps(next.automation.steps)[next.stepIndex ?? -1];
-    if (!step || step.type !== "email") return skip("Automation step was removed");
+    const node = normalizeFlow(next.automation.flow).nodes.find((n) => n.id === next.nodeId);
+    if (!node || node.data.kind !== "email") return skip("Automation step was removed");
+    const step = node.data;
     content = { subject: step.subject, html: step.html, previewText: "", fromName: "", replyTo: "", trackOpens: true, trackClicks: true, addUnsubscribe: true };
   } else {
     return skip("Campaign or automation was deleted");

@@ -164,6 +164,7 @@ model Lead {
   unsubscribedAt DateTime?
   emailBouncedAt DateTime?
   lastEmailedAt  DateTime?
+  handedOffAt    DateTime? // sent from email outreach to the calling team
   emailSends     EmailSend[]
   enrollments    AutomationEnrollment[]
   inboxThreads   InboxThread[]
@@ -448,6 +449,7 @@ model EmailSend {
   automationId String?
   automation   Automation?   @relation(fields: [automationId], references: [id], onDelete: Cascade)
   stepIndex    Int?
+  nodeId       String?
   leadId       String?
   lead         Lead?         @relation(fields: [leadId], references: [id], onDelete: SetNull)
   email        String
@@ -480,7 +482,7 @@ model Automation {
   name         String
   trigger      String                 @default("MANUAL") // MANUAL | LEAD_CREATED | STAGE_CHANGED | TAG_ADDED
   triggerValue String                 @default("")
-  steps        Json // AutomationStep[] (see src/lib/email.ts)
+  flow         Json                   @map("steps") // Flow graph (see src/lib/automation-flow.ts)
   accountIds   Json // string[]
   stopOnReply  Boolean                @default(true)
   status       AutomationStatus       @default(DRAFT)
@@ -497,6 +499,7 @@ model AutomationEnrollment {
   leadId       String
   lead         Lead             @relation(fields: [leadId], references: [id], onDelete: Cascade)
   stepIndex    Int              @default(0)
+  nodeId       String? // workflow node to run next (null = first step after the trigger)
   nextRunAt    DateTime?
   status       EnrollmentStatus @default(ACTIVE)
   stopReason   String?

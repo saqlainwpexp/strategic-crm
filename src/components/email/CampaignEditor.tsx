@@ -3,9 +3,9 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ArrowLeft, CalendarClock, Check, CircleAlert, LayoutTemplate, Send } from "lucide-react";
+import { ArrowLeft, CalendarClock, Check, LayoutTemplate, Send } from "lucide-react";
 import { Card, CardHeader } from "@/components/ui/Card";
-import { Button, buttonClass } from "@/components/ui/Button";
+import { Button } from "@/components/ui/Button";
 import { Field, Input, Select, Toggle } from "@/components/ui/Form";
 import { Modal } from "@/components/ui/Overlay";
 import { Segmented } from "@/components/ui/Segmented";
@@ -18,7 +18,8 @@ import { AudienceBuilder } from "./AudienceBuilder";
 import { EmailEditor } from "./EmailEditor";
 import { EmailPreview } from "./EmailPreview";
 import { SendTestButton } from "./SendTestButton";
-import { ACCOUNT_STATUS, useEmailAction } from "./kit";
+import { useEmailAction } from "./kit";
+import { ALL_INBOXES, SenderPicker, senderCapacity } from "./SenderPicker";
 
 type Form = {
   name: string;
@@ -65,7 +66,7 @@ export function CampaignEditor({
       html: t?.html ?? "",
       fromName: "",
       replyTo: "",
-      accountIds: accounts.filter((a) => a.status === "CONNECTED").map((a) => a.id),
+      accountIds: [ALL_INBOXES],
       audience: EMPTY_AUDIENCE,
       trackOpens: true,
       trackClicks: true,
@@ -95,7 +96,7 @@ export function CampaignEditor({
 
   const checks = useMemo(
     () => [
-      { ok: f.accountIds.length > 0, label: "Sending mailbox chosen" },
+      { ok: senderCapacity(accounts, f.accountIds).inboxes > 0, label: "Sending inboxes chosen" },
       { ok: (count ?? 0) > 0, label: count === null ? "Audience" : `${count.toLocaleString("en-US")} recipient${count === 1 ? "" : "s"}` },
       { ok: f.subject.trim().length > 0, label: "Subject line" },
       { ok: f.html.replace(/<[^>]+>/g, "").trim().length > 1, label: "Email body" },
@@ -104,6 +105,7 @@ export function CampaignEditor({
     [f, count]
   );
   const ready = checks.every((c) => c.ok);
+  const cap = senderCapacity(accounts, f.accountIds);
 
   async function save(): Promise<string | null> {
     const res = await run("save", saveCampaignAction({ id: campaign?.id, ...f }));
@@ -146,44 +148,12 @@ export function CampaignEditor({
         <div className="flex min-w-0 flex-col gap-6">
           {/* 1. Sender */}
           <Card className="p-8">
-            <CardHeader title="1. Sender" subtitle="Emails rotate across the mailboxes you pick, each at its own safe pace." />
-            {accounts.length === 0 ? (
-              <div className="flex flex-wrap items-center gap-4 rounded-2xl bg-soft p-5 text-[13.5px]">
-                <CircleAlert className="h-4 w-4 text-brand" /> You haven't connected a mailbox yet.
-                <Link href="/email/sending?new=1" className={buttonClass("primary", "sm", "ml-auto")}>
-                  Add mailbox
-                </Link>
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                {accounts.map((a) => {
-                  const on = f.accountIds.includes(a.id);
-                  const st = ACCOUNT_STATUS[a.status];
-                  return (
-                    <button
-                      key={a.id}
-                      type="button"
-                      disabled={a.status === "DISCONNECTED"}
-                      onClick={() => set("accountIds", on ? f.accountIds.filter((x) => x !== a.id) : [...f.accountIds, a.id])}
-                      className={cn(
-                        "flex items-center gap-3.5 rounded-2xl border p-4 text-left transition disabled:opacity-50",
-                        on ? "border-ink bg-white shadow-[0_0_0_1px_rgb(var(--ink))]" : "border-black/[0.08] hover:border-black/20"
-                      )}
-                    >
-                      <span className={cn("grid h-5 w-5 shrink-0 place-items-center rounded-md border", on ? "border-ink bg-ink text-white" : "border-neutral-300")}>
-                        {on && <Check className="h-3.5 w-3.5" strokeWidth={3} />}
-                      </span>
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate text-[14px] font-medium">{a.email}</span>
-                        <span className="mt-0.5 flex items-center gap-1.5 text-[12px] text-neutral-500">
-                          <span className="h-1.5 w-1.5 rounded-full" style={{ background: st.color }} />
-                          {st.label} · {a.dailyLimit}/day
-                        </span>
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
+            <CardHeader title="1. Sender" subtitle="Emails rotate across your inboxes, each respecting its own daily limit and pace." />
+            <SenderPicker accounts={accounts} value={f.accountIds} onChange={(v) => set("accountIds", v)} />
+            {count !== null && count > 0 && cap.perDay > 0 && (
+              <p className="mt-3 text-[12.5px] text-neutral-500">
+                At full capacity, {count.toLocaleString("en-US")} emails take about {Math.max(1, Math.ceil(count / cap.perDay))} day{Math.ceil(count / cap.perDay) > 1 ? "s" : ""} to go out.
+              </p>
             )}
             <div className="mt-6 grid grid-cols-1 gap-5 md:grid-cols-2">
               <Field label="From name" hint="Leave blank to use each mailbox's own name.">

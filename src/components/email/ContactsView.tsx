@@ -30,7 +30,8 @@ import { dayKey, dayLabel, formatDateTime } from "@/lib/date";
 import { PIPELINE_STAGES, STAGE_LABELS } from "@/lib/constants";
 import { CONTACT_STATUS_COLOR, CONTACT_STATUS_LABELS, type ContactStatus } from "@/lib/email";
 import type { AutomationView, ContactActivity, ContactView } from "@/lib/email-types";
-import { enrollContactsAction, getContactActivityAction, setSubscriptionAction, updateContactTagsAction } from "@/server/email/actions";
+import { enrollContactsAction, getContactActivityAction, handoffContactsAction, setSubscriptionAction, updateContactTagsAction } from "@/server/email/actions";
+import { HandoffButton } from "./HandoffButton";
 import { HANDOFF_KEY } from "./CampaignEditor";
 import { MultiPick } from "./MultiPick";
 import { recipientState } from "./CampaignReport";
@@ -44,6 +45,7 @@ type Props = {
   tags: string[];
   automations: Pick<AutomationView, "id" | "name" | "status">[];
   focus: ContactView | null;
+  reps: { id: string; name: string }[];
 };
 
 const STATUS_TABS: { value: "" | ContactStatus; label: string }[] = [
@@ -54,7 +56,7 @@ const STATUS_TABS: { value: "" | ContactStatus; label: string }[] = [
   { value: "NO_EMAIL", label: "No email" },
 ];
 
-export function ContactsView({ contacts, total, page, pages, tags, automations, focus }: Props) {
+export function ContactsView({ contacts, total, page, pages, tags, automations, focus, reps }: Props) {
   const router = useRouter();
   const pathname = usePathname();
   const params = useSearchParams();
@@ -152,6 +154,7 @@ export function ContactsView({ contacts, total, page, pages, tags, automations, 
                 }}
               />
               <BulkBtn icon={Workflow} label="Add to automation" onClick={() => setEnrollOpen(true)} />
+              <HandoffButton reps={reps} label="Send to calls" count={ids.length} variant="brand" onHandoff={(rep) => handoffContactsAction(ids, rep)} />
               <BulkBtn icon={Tag} label="Tag" onClick={() => setTagModal("add")} />
               <BulkBtn icon={X} label="Untag" onClick={() => setTagModal("remove")} />
               <BulkBtn
@@ -280,7 +283,7 @@ export function ContactsView({ contacts, total, page, pages, tags, automations, 
         )}
       </Card>
 
-      <ContactDrawer contact={open} onClose={() => setParams({ contact: null, page: params.get("page") })} allTags={tags} />
+      <ContactDrawer contact={open} reps={reps} onClose={() => setParams({ contact: null, page: params.get("page") })} allTags={tags} />
       <CsvImportModal open={importOpen} mode="email" onClose={() => setImportOpen(false)} onImported={() => router.refresh()} />
 
       <Modal
@@ -368,7 +371,7 @@ function TagPicker({ tags, onPick, verb, allowNew, busy }: { tags: string[]; onP
   );
 }
 
-function ContactDrawer({ contact, onClose, allTags }: { contact: ContactView | null; onClose: () => void; allTags: string[] }) {
+function ContactDrawer({ contact, onClose, allTags, reps }: { contact: ContactView | null; onClose: () => void; allTags: string[]; reps: { id: string; name: string }[] }) {
   const { run, busy } = useEmailAction();
   const [activity, setActivity] = useState<ContactActivity | null>(null);
   const [tags, setTags] = useState<string[]>([]);
@@ -425,6 +428,7 @@ function ContactDrawer({ contact, onClose, allTags }: { contact: ContactView | n
               <RotateCcw className="h-3.5 w-3.5" /> {contact.status === "BOUNCED" ? "Clear bounce" : "Resubscribe"}
             </Button>
           ) : null}
+          <HandoffButton reps={reps} variant="secondary" onHandoff={(rep) => handoffContactsAction([contact.id], rep)} />
           <Link href={`/leads?lead=${contact.id}`} className="inline-flex h-9 items-center gap-1.5 rounded-full bg-page px-4 text-[13px] hover:bg-neutral-200/80">
             <ExternalLink className="h-3.5 w-3.5" /> Open in Cold Calling CRM
           </Link>

@@ -104,13 +104,14 @@ export type AutomationStep =
   | { id: string; type: "email"; subject: string; html: string }
   | { id: string; type: "wait"; amount: number; unit: WaitUnit };
 
-export type AutomationTrigger = "MANUAL" | "LEAD_CREATED" | "STAGE_CHANGED" | "TAG_ADDED";
+export type AutomationTrigger = "MANUAL" | "LEAD_CREATED" | "STAGE_CHANGED" | "TAG_ADDED" | "EMAIL_REPLIED";
 
 export const TRIGGER_LABELS: Record<AutomationTrigger, string> = {
   MANUAL: "Added by hand",
   LEAD_CREATED: "New lead is created or imported",
   STAGE_CHANGED: "Lead moves to a pipeline stage",
   TAG_ADDED: "Tag is added to a contact",
+  EMAIL_REPLIED: "Contact replies to an email",
 };
 
 export const WAIT_MS: Record<WaitUnit, number> = { minutes: 60_000, hours: 3_600_000, days: 86_400_000 };

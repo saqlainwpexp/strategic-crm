@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import { notFound } from "next/navigation";
 import { AutomationEditor } from "@/components/email/AutomationEditor";
 import { loadAccounts, loadAudienceOptions, loadAutomation, loadTemplates } from "@/server/email/load";
@@ -10,13 +11,16 @@ export default async function AutomationPage({ params }: { params: Promise<{ id:
   const [data, accounts, templates, options] = await Promise.all([loadAutomation(id), loadAccounts(), loadTemplates(), loadAudienceOptions()]);
   if (!data) notFound();
   return (
-    <AutomationEditor
-      key={`${data.automation.id}-${data.automation.updatedAt}`}
-      automation={data.automation}
-      enrollments={data.enrollments}
-      accounts={accounts}
-      templates={templates}
-      tags={options.tags}
-    />
+    <Suspense>
+      <AutomationEditor
+        key={`${data.automation.id}-${data.automation.updatedAt}`}
+        automation={data.automation}
+        enrollments={data.enrollments}
+        accounts={accounts}
+        templates={templates}
+        tags={options.tags}
+        reps={options.reps}
+      />
+    </Suspense>
   );
 }

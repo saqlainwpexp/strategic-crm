@@ -13,6 +13,7 @@ import { AuthError, requireActionUser, visibleUserIds } from "./session";
 import { BCRYPT_ROUNDS, MIN_PASSWORD_LENGTH } from "./auth";
 import { normalizeSettings, saveBrandingRow, saveSettingsRow } from "./settings";
 import { fireTrigger } from "./email/triggers";
+import { normalizeTags } from "@/lib/email";
 import { permissionsFor } from "@/lib/access";
 import { normalizeBranding, type Branding } from "@/lib/branding";
 import { AGENCY_SERVICES, DISPOSITIONS, DISPOSITION_TO_STAGE, PIPELINE_STAGES, PRIORITIES, type PipelineStage } from "@/lib/constants";
@@ -180,7 +181,8 @@ const MAX_IMPORT_ROWS = 5000;
 
 export async function importLeadsAction(
   rows: ({ id: string } & z.infer<typeof leadFields>)[],
-  meta: { fileName: string; rowCount: number; duplicateCount: number; errorCount: number; poolId: string | null }
+  meta: { fileName: string; rowCount: number; duplicateCount: number; errorCount: number; poolId: string | null },
+  tags: string[] = []
 ) {
   return run("importLeads", async () => {
     const me = await requireActionUser();
@@ -214,7 +216,13 @@ export async function importLeadsAction(
     });
     await audit(me.id, "leads.import", "CsvImport", imp.id, { count: result.count, fileName: m.fileName });
     const created = await prisma.lead.findMany({ where: { id: { in: parsed.map((r) => r.id) } }, select: { id: true } });
-    await fireTrigger("LEAD_CREATED", created.map((l) => l.id));
+    const createdIds = created.map((l) => l.id);
+    const importTags = normalizeTags(z.array(str(40)).max(5).parse(tags));
+    if (importTags.length && createdIds.length) {
+      await prisma.lead.updateMany({ where: { id: { in: createdIds } }, data: { tags: importTags } });
+      for (const t of importTags) await fireTrigger("TAG_ADDED", createdIds, t);
+    }
+    await fireTrigger("LEAD_CREATED", createdIds);
     return { imported: result.count };
   });
 }

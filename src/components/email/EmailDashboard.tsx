@@ -71,6 +71,8 @@ export function EmailDashboard({ data }: { data: EmailOverview }) {
         <StatCard icon={Send} label="Mailable contacts" value={s.mailable.toLocaleString("en-US")} hint={`of ${s.contacts.toLocaleString("en-US")} with an email`} />
       </div>
 
+      <OutreachFunnel f={data.funnel} />
+
       <div className="mt-6 grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_380px]">
         <Card>
           <CardHeader title="Sending activity" subtitle="Emails delivered per day, and how many were opened" />
@@ -94,8 +96,8 @@ export function EmailDashboard({ data }: { data: EmailOverview }) {
 
         <Card>
           <CardHeader
-            title="Mailboxes"
-            subtitle="Today's sending"
+            title="Inboxes"
+            subtitle={`${data.domains} domain${data.domains === 1 ? "" : "s"} · ${data.accounts.length} inbox${data.accounts.length === 1 ? "" : "es"} · ${data.accounts.reduce((sum, a) => sum + a.dailyLimit, 0).toLocaleString("en-US")}/day`}
             actions={
               <Link href="/email/sending" className="text-[13px] text-neutral-500 hover:text-ink">
                 Manage
@@ -189,5 +191,50 @@ export function EmailDashboard({ data }: { data: EmailOverview }) {
         )}
       </Card>
     </div>
+  );
+}
+
+const FUNNEL: { key: keyof EmailOverview["funnel"]; label: string; href?: string }[] = [
+  { key: "emailed", label: "Emailed", href: "/email/campaigns" },
+  { key: "opened", label: "Opened" },
+  { key: "replied", label: "Replied", href: "/email/inbox" },
+  { key: "handedOff", label: "Sent to calls", href: "/loadboard" },
+  { key: "meetings", label: "Meetings", href: "/schedule" },
+  { key: "clients", label: "Paying clients", href: "/pipeline" },
+];
+
+/** Leads → email outreach → sales calls → paying clients, for everyone emailed in the last 30 days. */
+function OutreachFunnel({ f }: { f: EmailOverview["funnel"] }) {
+  const max = Math.max(f.emailed, 1);
+  return (
+    <Card className="mt-6">
+      <CardHeader title="Outreach pipeline" subtitle="Everyone emailed in the last 30 days, from first email to paying client" />
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
+        {FUNNEL.map((step, i) => {
+          const value = f[step.key];
+          const prev = i > 0 ? f[FUNNEL[i - 1].key] : null;
+          const last = i === FUNNEL.length - 1;
+          const body = (
+            <div className={`h-full rounded-2xl p-5 transition-colors ${last ? "bg-ink text-white" : "bg-soft hover:bg-page"}`}>
+              <p className={`text-[12.5px] ${last ? "text-white/70" : "text-neutral-500"}`}>{step.label}</p>
+              <p className="mt-3 text-[30px] leading-none tracking-[-0.02em] tabular-nums">{value.toLocaleString("en-US")}</p>
+              <div className={`mt-4 h-1.5 overflow-hidden rounded-full ${last ? "bg-white/15" : "bg-white"}`}>
+                <div className="h-full rounded-full bg-brand" style={{ width: `${Math.max(value ? 4 : 0, (value / max) * 100)}%` }} />
+              </div>
+              <p className={`mt-3 text-[12px] ${last ? "text-white/70" : "text-neutral-500"}`}>
+                {prev === null ? "Leads reached" : prev ? `${pct(value, prev)}% of previous step` : "—"}
+              </p>
+            </div>
+          );
+          return step.href ? (
+            <Link key={step.key} href={step.href} className="block">
+              {body}
+            </Link>
+          ) : (
+            <div key={step.key}>{body}</div>
+          );
+        })}
+      </div>
+    </Card>
   );
 }

@@ -19,17 +19,24 @@ type Step = "upload" | "map" | "review" | "done";
 type Strategy = "pool" | "one" | "round";
 
 const CORE: { key: string; label: string; aliases: string[]; required?: boolean }[] = [
-  { key: "businessName", label: "Business name", aliases: ["business name", "business", "company", "company name", "name", "business_name"], required: true },
+  { key: "businessName", label: "Business name", aliases: ["business name", "business", "company", "company name", "name", "business_name", "company name for emails", "organization", "organization name", "account name"], required: true },
   { key: "phone", label: "Phone", aliases: ["phone", "phone number", "mobile", "contact number", "number", "tel", "telephone", "cell"], required: true },
   { key: "address", label: "Address", aliases: ["address", "location", "full address", "street address"] },
-  { key: "city", label: "City", aliases: ["city", "town"] },
-  { key: "website", label: "Website", aliases: ["website", "site", "url", "web", "website url"] },
+  { key: "city", label: "City", aliases: ["city", "town", "person city", "company city"] },
+  { key: "website", label: "Website", aliases: ["website", "site", "url", "web", "website url", "company website", "company domain", "domain", "company url"] },
   { key: "issues", label: "Issues they're facing", aliases: ["issues", "issues they are facing", "problems", "pain points", "issue", "pain point"] },
   { key: "suggestedServices", label: "Suggested services / solutions", aliases: ["suggested services", "solutions", "our suggested services", "suggested solutions", "solution", "our suggested services solutions", "services"] },
-  { key: "email", label: "Email", aliases: ["email", "email address", "e mail", "mail"] },
+  { key: "email", label: "Email", aliases: ["email", "email address", "e mail", "mail", "work email", "business email", "email 1", "person email"] },
+  // Lead-list exports (ListKit, Apollo …) split the contact's name and add a few extras.
+  { key: "firstName", label: "First name", aliases: ["first name", "firstname", "first"] },
+  { key: "lastName", label: "Last name", aliases: ["last name", "lastname", "last", "surname"] },
+  { key: "title", label: "Job title", aliases: ["title", "job title", "position", "role", "person title"] },
+  { key: "industry", label: "Industry", aliases: ["industry", "company industry"] },
+  { key: "linkedin", label: "LinkedIn", aliases: ["linkedin", "linkedin url", "person linkedin url", "linkedin profile", "profile url"] },
+  { key: "emailStatus", label: "Email status (verified / invalid)", aliases: ["email status", "email verification", "verification status", "email verified", "status of email"] },
   { key: "priority", label: "Priority", aliases: ["priority"] },
   { key: "source", label: "Source", aliases: ["source", "lead source"] },
-  { key: "decisionMakerName", label: "Decision maker", aliases: ["decision maker", "decision maker name", "owner", "contact name", "contact person", "owner name"] },
+  { key: "decisionMakerName", label: "Decision maker", aliases: ["decision maker", "decision maker name", "owner", "contact name", "contact person", "owner name", "full name", "person name"] },
   { key: "leadScore", label: "Lead score (0–100)", aliases: ["lead score", "score", "lead score out of 100"] },
   { key: "temperature", label: "Temperature (cold/warm/hot)", aliases: ["temperature", "lead temperature", "heat", "cold warm hot", "status"] },
   { key: "service", label: "Primary service", aliases: ["service", "primary service", "service type"] },
@@ -92,6 +99,8 @@ export function CsvImportModal({
   const [oneRep, setOneRep] = useState(reps[0]?.id ?? "");
   const [roundReps, setRoundReps] = useState<string[]>(reps.filter((r) => r.role === "SALES").map((r) => r.id));
   const [skipDupes, setSkipDupes] = useState(true);
+  /** Email mode: tag every imported contact (e.g. “ListKit — Dentists”) so campaigns/automations can target the list. */
+  const [importTag, setImportTag] = useState("");
   const [result, setResult] = useState<{ imported: number; dupes: number; errors: number; poolId: string | null } | null>(null);
 
   const customFields = data.customFields.filter((f) => f.active);
@@ -127,6 +136,7 @@ export function CsvImportModal({
           return;
         }
         setFileName(file.name);
+        setImportTag(file.name.replace(/\.csv$/i, "").replace(/[_-]+/g, " ").trim().slice(0, 40));
         setHeaders(hs);
         setRows(res.data);
         setMapping(autoMap(hs, customFields));
@@ -177,6 +187,11 @@ export function CsvImportModal({
         errors++;
         continue;
       }
+      // Lead-list tools flag addresses that would bounce — never import those for emailing.
+      if (mode === "email" && /invalid|undeliverable|bounce|do not mail|spamtrap/i.test(get(row, "emailStatus"))) {
+        errors++;
+        continue;
+      }
       const pk = phoneKey(phone);
       const dupe = (pk && (existingPhones.has(pk) || seenPhones.has(pk))) || (email && (existingEmails.has(email) || seenEmails.has(email)));
       if (pk) seenPhones.add(pk);
@@ -208,15 +223,22 @@ export function CsvImportModal({
         issues: multiline(get(row, "issues")),
         suggestedServices: multiline(get(row, "suggestedServices")),
         priority,
-        source: get(row, "source") || "CSV Import",
-        decisionMakerName: get(row, "decisionMakerName"),
+        source: get(row, "source") || (/listkit/i.test(fileName) ? "ListKit" : "CSV Import"),
+        decisionMakerName: get(row, "decisionMakerName") || [get(row, "firstName"), get(row, "lastName")].filter(Boolean).join(" "),
         leadScore: Math.max(0, Math.min(100, score)),
         stage: "LEAD",
         service: parseService(get(row, "service") || get(row, "suggestedServices")),
         estimatedValue: Number(get(row, "estimatedValue").replace(/[^\d.]/g, "")) || 0,
         assignedToId: null,
         poolId: null,
-        notes: get(row, "notes"),
+        notes: [
+          get(row, "notes"),
+          get(row, "title") && `Title: ${get(row, "title")}`,
+          get(row, "industry") && `Industry: ${get(row, "industry")}`,
+          get(row, "linkedin") && `LinkedIn: ${get(row, "linkedin")}`,
+        ]
+          .filter(Boolean)
+          .join("\n"),
         customFields: custom,
         lastContactedAt: null,
         nextFollowUpAt: null,
@@ -225,7 +247,7 @@ export function CsvImportModal({
     }
     return { ready, dupes, errors };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [step, mapping, rows, data.leads, skipDupes, customFields, mode]);
+  }, [step, mapping, rows, data.leads, skipDupes, customFields, mode, fileName]);
 
   const runImport = () => {
     if (!analysis) return;
@@ -240,14 +262,18 @@ export function CsvImportModal({
       poolId,
       assignedToId: assignees.length ? assignees[i % assignees.length] : null,
     }));
-    importLeads(leads, {
-      fileName,
-      rowCount: rows.length,
-      successCount: leads.length,
-      duplicateCount: analysis.dupes,
-      errorCount: analysis.errors,
-      poolId,
-    });
+    importLeads(
+      leads,
+      {
+        fileName,
+        rowCount: rows.length,
+        successCount: leads.length,
+        duplicateCount: analysis.dupes,
+        errorCount: analysis.errors,
+        poolId,
+      },
+      mode === "email" && importTag.trim() ? [importTag.trim()] : []
+    );
     setResult({ imported: leads.length, dupes: analysis.dupes, errors: analysis.errors, poolId });
     setStep("done");
   };
@@ -445,6 +471,16 @@ export function CsvImportModal({
           <div className="mt-4">
             <Toggle checked={skipDupes} onChange={setSkipDupes} label="Skip leads whose phone or email already exists" />
           </div>
+
+          {mode === "email" && (
+            <Field
+              label="Tag these contacts"
+              className="mt-9 max-w-[420px]"
+              hint="Target this list in a campaign, or start an automation with “Tag is added”."
+            >
+              <Input value={importTag} maxLength={40} onChange={(e) => setImportTag(e.target.value)} placeholder="e.g. ListKit — Dentists Boston" />
+            </Field>
+          )}
 
           <div className="mt-9 grid gap-6 sm:grid-cols-2">
             <Field label="Add to lead pool">

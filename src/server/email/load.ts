@@ -3,7 +3,8 @@
 
 import { Prisma, type Automation, type Campaign, type EmailAccount, type EmailDomain } from "@prisma/client";
 import { prisma } from "../db";
-import { normalizeAudience, normalizeSteps, normalizeTags, stringArray, type AutomationTrigger, type ContactStatus } from "@/lib/email";
+import { normalizeAudience, normalizeTags, stringArray, type AutomationTrigger, type ContactStatus } from "@/lib/email";
+import { normalizeFlow } from "@/lib/automation-flow";
 import type {
   AudienceOptions,
   AutomationView,
@@ -77,6 +78,7 @@ export function toAccountView(a: EmailAccount, totalSent = 0): EmailAccountView 
     sentToday: a.sentDay === today() ? a.sentToday : 0,
     lastSyncAt: iso(a.lastSyncAt),
     totalSent,
+    domain: a.email.split("@")[1] ?? "",
   };
 }
 
@@ -201,7 +203,7 @@ function toAutomationView(a: Automation, counts: AutomationView["counts"] | unde
     name: a.name,
     trigger: a.trigger as AutomationTrigger,
     triggerValue: a.triggerValue,
-    steps: normalizeSteps(a.steps),
+    flow: normalizeFlow(a.flow),
     accountIds: stringArray(a.accountIds),
     stopOnReply: a.stopOnReply,
     status: a.status,
@@ -241,6 +243,7 @@ export async function loadAutomation(id: string) {
         businessName: e.lead.businessName,
         email: e.lead.email ?? "",
         stepIndex: e.stepIndex,
+        nodeId: e.nodeId,
         status: e.status,
         stopReason: e.stopReason,
         nextRunAt: iso(e.nextRunAt),
@@ -450,6 +453,17 @@ export async function loadOverview(days = 30): Promise<EmailOverview> {
     series.push({ day: key, sent: n(r?.sent), opened: n(r?.opened), replied: n(r?.replied) });
   }
 
+  // Outreach funnel: people emailed in the period → engaged → handed to calls → meetings → clients.
+  const [f] = await prisma.$queryRaw<{ emailed: unknown; opened: unknown; replied: unknown; handedOff: unknown; meetings: unknown; clients: unknown }[]>`
+    SELECT COUNT(DISTINCT s.leadId) AS emailed,
+      COUNT(DISTINCT CASE WHEN s.openedAt IS NOT NULL THEN s.leadId END) AS opened,
+      COUNT(DISTINCT CASE WHEN s.repliedAt IS NOT NULL THEN s.leadId END) AS replied,
+      COUNT(DISTINCT CASE WHEN l.handedOffAt IS NOT NULL THEN l.id END) AS handedOff,
+      COUNT(DISTINCT CASE WHEN l.stage IN ('MEETING_BOOKED','SHOWED','NO_SHOW','CLOSED_WON') THEN l.id END) AS meetings,
+      COUNT(DISTINCT CASE WHEN l.stage = 'CLOSED_WON' THEN l.id END) AS clients
+    FROM \`EmailSend\` s JOIN \`Lead\` l ON l.id = s.leadId
+    WHERE s.status = 'SENT' AND s.sentAt >= ${since}`;
+
   return {
     stats: { ...toStats(statRows[0]), unsubscribed, contacts, mailable },
     daily: series,
@@ -457,5 +471,12 @@ export async function loadOverview(days = 30): Promise<EmailOverview> {
     accounts,
     activeAutomations,
     unreadReplies,
+    funnel: { emailed: n(f?.emailed), opened: n(f?.opened), replied: n(f?.replied), handedOff: n(f?.handedOff), meetings: n(f?.meetings), clients: n(f?.clients) },
+    domains: new Set(accounts.map((a) => a.domain)).size,
   };
+}
+
+/** People who make calls — the targets of "Send to sales calls". */
+export async function loadReps() {
+  return prisma.user.findMany({ where: { active: true, role: { in: ["SALES", "BD"] } }, select: { id: true, name: true }, orderBy: { name: "asc" } });
 }
