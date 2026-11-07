@@ -2,7 +2,7 @@
 // emailMarketing permission (see requireEmailPage in ./access.ts).
 
 import { Prisma, type Automation, type Campaign, type EmailAccount, type EmailDomain } from "@prisma/client";
-import { prisma } from "../db";
+import { getDb, getAgency } from "../db";
 import { normalizeAudience, normalizeTags, stringArray, type AutomationTrigger, type ContactStatus } from "@/lib/email";
 import { normalizeFlow } from "@/lib/automation-flow";
 import type {
@@ -23,6 +23,8 @@ import type {
   ThreadSummary,
 } from "@/lib/email-types";
 import type { PipelineStage } from "@/lib/constants";
+
+import { systemDb } from "../system-db";
 
 const iso = (d: Date | null | undefined) => (d ? d.toISOString() : null);
 const n = (v: unknown) => Number(v ?? 0);
@@ -49,7 +51,7 @@ const toStats = (r?: StatRow): SendStats =>
 async function statsBy(column: "campaignId" | "automationId", ids: string[]) {
   if (!ids.length) return new Map<string, SendStats>();
   const col = Prisma.raw(`\`${column}\``);
-  const rows = await prisma.$queryRaw<StatRow[]>`SELECT ${col} AS k, ${STAT_COLUMNS} FROM \`EmailSend\` WHERE ${col} IN (${Prisma.join(ids)}) GROUP BY ${col}`;
+  const rows = await systemDb.$queryRaw<StatRow[]>`SELECT ${col} AS k, ${STAT_COLUMNS} FROM \`EmailSend\` WHERE agencyId = ${(await getAgency()).id} AND ${col} IN (${Prisma.join(ids)}) GROUP BY ${col}`;
   return new Map(rows.map((r) => [r.k ?? "", toStats(r)]));
 }
 
@@ -84,8 +86,8 @@ export function toAccountView(a: EmailAccount, totalSent = 0): EmailAccountView 
 
 export async function loadAccounts(): Promise<EmailAccountView[]> {
   const [accounts, totals] = await Promise.all([
-    prisma.emailAccount.findMany({ orderBy: { createdAt: "asc" } }),
-    prisma.emailSend.groupBy({ by: ["accountId"], where: { status: "SENT" }, _count: { _all: true } }),
+    (await getDb()).emailAccount.findMany({ orderBy: { createdAt: "asc" } }),
+    (await getDb()).emailSend.groupBy({ by: ["accountId"], where: { status: "SENT" }, _count: { _all: true } }),
   ]);
   const t = new Map(totals.map((r) => [r.accountId, r._count._all]));
   return accounts.map((a) => toAccountView(a, t.get(a.id) ?? 0));
@@ -106,13 +108,13 @@ export function toDomainView(d: EmailDomain): EmailDomainView {
 }
 
 export async function loadDomains(): Promise<EmailDomainView[]> {
-  return (await prisma.emailDomain.findMany({ orderBy: { createdAt: "asc" } })).map(toDomainView);
+  return (await (await getDb()).emailDomain.findMany({ orderBy: { createdAt: "asc" } })).map(toDomainView);
 }
 
 // ─── Templates ───────────────────────────────────────────────
 
 export async function loadTemplates(): Promise<TemplateView[]> {
-  const rows = await prisma.emailTemplate.findMany({ orderBy: { updatedAt: "desc" } });
+  const rows = await (await getDb()).emailTemplate.findMany({ orderBy: { updatedAt: "desc" } });
   return rows.map((t) => ({ id: t.id, name: t.name, subject: t.subject, html: t.html, updatedAt: t.updatedAt.toISOString() }));
 }
 
@@ -144,20 +146,20 @@ function toCampaignView(c: Campaign, stats: SendStats): CampaignView {
 }
 
 export async function loadCampaigns(take = 200): Promise<CampaignView[]> {
-  const rows = await prisma.campaign.findMany({ orderBy: { updatedAt: "desc" }, take });
+  const rows = await (await getDb()).campaign.findMany({ orderBy: { updatedAt: "desc" }, take });
   const stats = await statsBy("campaignId", rows.map((c) => c.id));
   return rows.map((c) => toCampaignView(c, stats.get(c.id) ?? { ...EMPTY_STATS }));
 }
 
 export async function loadCampaign(id: string): Promise<CampaignView | null> {
-  const c = await prisma.campaign.findUnique({ where: { id } });
+  const c = await (await getDb()).campaign.findUnique({ where: { id } });
   if (!c) return null;
   const stats = await statsBy("campaignId", [c.id]);
   return toCampaignView(c, stats.get(c.id) ?? { ...EMPTY_STATS });
 }
 
 export async function loadRecipients(where: Prisma.EmailSendWhereInput, take = 500): Promise<RecipientView[]> {
-  const rows = await prisma.emailSend.findMany({
+  const rows = await (await getDb()).emailSend.findMany({
     where,
     orderBy: [{ sentAt: { sort: "desc", nulls: "last" } }, { queuedAt: "asc" }],
     take,
@@ -185,7 +187,7 @@ export async function loadRecipients(where: Prisma.EmailSendWhereInput, take = 5
 
 async function enrollmentCounts(ids: string[]) {
   if (!ids.length) return new Map<string, AutomationView["counts"]>();
-  const rows = await prisma.automationEnrollment.groupBy({ by: ["automationId", "status"], where: { automationId: { in: ids } }, _count: { _all: true } });
+  const rows = await (await getDb()).automationEnrollment.groupBy({ by: ["automationId", "status"], where: { automationId: { in: ids } }, _count: { _all: true } });
   const m = new Map<string, AutomationView["counts"]>();
   for (const r of rows) {
     const c = m.get(r.automationId) ?? { active: 0, completed: 0, stopped: 0 };
@@ -215,19 +217,19 @@ function toAutomationView(a: Automation, counts: AutomationView["counts"] | unde
 }
 
 export async function loadAutomations(): Promise<AutomationView[]> {
-  const rows = await prisma.automation.findMany({ orderBy: { updatedAt: "desc" } });
+  const rows = await (await getDb()).automation.findMany({ orderBy: { updatedAt: "desc" } });
   const ids = rows.map((a) => a.id);
   const [counts, stats] = await Promise.all([enrollmentCounts(ids), statsBy("automationId", ids)]);
   return rows.map((a) => toAutomationView(a, counts.get(a.id), stats.get(a.id)));
 }
 
 export async function loadAutomation(id: string) {
-  const a = await prisma.automation.findUnique({ where: { id } });
+  const a = await (await getDb()).automation.findUnique({ where: { id } });
   if (!a) return null;
   const [counts, stats, enrollments] = await Promise.all([
     enrollmentCounts([a.id]),
     statsBy("automationId", [a.id]),
-    prisma.automationEnrollment.findMany({
+    (await getDb()).automationEnrollment.findMany({
       where: { automationId: a.id },
       orderBy: { enrolledAt: "desc" },
       take: 300,
@@ -281,8 +283,8 @@ export async function loadContacts(query: ContactQuery) {
 
   const page = Math.max(1, query.page ?? 1);
   const [total, rows, counts] = await Promise.all([
-    prisma.lead.count({ where }),
-    prisma.lead.findMany({
+    (await getDb()).lead.count({ where }),
+    (await getDb()).lead.findMany({
       where,
       orderBy: [{ lastEmailedAt: { sort: "desc", nulls: "last" } }, { createdAt: "desc" }],
       skip: (page - 1) * CONTACTS_PAGE_SIZE,
@@ -292,13 +294,13 @@ export async function loadContacts(query: ContactQuery) {
         leadScore: true, tags: true, emailOptOut: true, emailBouncedAt: true, lastEmailedAt: true,
       },
     }),
-    prisma.lead.groupBy({ by: ["emailOptOut"], _count: { _all: true } }),
+    (await getDb()).lead.groupBy({ by: ["emailOptOut"], _count: { _all: true } }),
   ]);
   const ids = rows.map((r) => r.id);
   const activity = ids.length
-    ? await prisma.$queryRaw<{ k: string; sent: unknown; opened: unknown; replied: unknown }[]>`
+    ? await systemDb.$queryRaw<{ k: string; sent: unknown; opened: unknown; replied: unknown }[]>`
         SELECT leadId AS k, SUM(status = 'SENT') AS sent, SUM(openedAt IS NOT NULL) AS opened, SUM(repliedAt IS NOT NULL) AS replied
-        FROM \`EmailSend\` WHERE leadId IN (${Prisma.join(ids)}) GROUP BY leadId`
+        FROM \`EmailSend\` WHERE agencyId = ${(await getAgency()).id} AND leadId IN (${Prisma.join(ids)}) GROUP BY leadId`
     : [];
   const act = new Map(activity.map((a) => [a.k, a]));
 
@@ -325,13 +327,13 @@ export async function loadContacts(query: ContactQuery) {
 
 export async function loadContactActivity(leadId: string): Promise<ContactActivity> {
   const [sends, enrollments] = await Promise.all([
-    prisma.emailSend.findMany({
+    (await getDb()).emailSend.findMany({
       where: { leadId },
       orderBy: { queuedAt: "desc" },
       take: 100,
       include: { campaign: { select: { name: true } }, automation: { select: { name: true } } },
     }),
-    prisma.automationEnrollment.findMany({ where: { leadId }, orderBy: { enrolledAt: "desc" }, include: { automation: { select: { name: true } } } }),
+    (await getDb()).automationEnrollment.findMany({ where: { leadId }, orderBy: { enrolledAt: "desc" }, include: { automation: { select: { name: true } } } }),
   ]);
   return {
     sends: sends.map((s) => ({
@@ -351,11 +353,11 @@ export async function loadContactActivity(leadId: string): Promise<ContactActivi
 
 export async function loadAudienceOptions(): Promise<AudienceOptions> {
   const [tagRows, sources, cities, pools, reps] = await Promise.all([
-    prisma.lead.findMany({ where: { NOT: { tags: { equals: Prisma.AnyNull } } }, select: { tags: true }, take: 20_000 }),
-    prisma.lead.groupBy({ by: ["source"], where: { source: { not: null } }, orderBy: { source: "asc" } }),
-    prisma.lead.groupBy({ by: ["city"], where: { city: { not: null } }, orderBy: { city: "asc" } }),
-    prisma.pool.findMany({ select: { id: true, name: true }, orderBy: { name: "asc" } }),
-    prisma.user.findMany({ where: { active: true }, select: { id: true, name: true }, orderBy: { name: "asc" } }),
+    (await getDb()).lead.findMany({ where: { NOT: { tags: { equals: Prisma.AnyNull } } }, select: { tags: true }, take: 20_000 }),
+    (await getDb()).lead.groupBy({ by: ["source"], where: { source: { not: null } }, orderBy: { source: "asc" } }),
+    (await getDb()).lead.groupBy({ by: ["city"], where: { city: { not: null } }, orderBy: { city: "asc" } }),
+    (await getDb()).pool.findMany({ select: { id: true, name: true }, orderBy: { name: "asc" } }),
+    (await getDb()).user.findMany({ where: { active: true }, select: { id: true, name: true }, orderBy: { name: "asc" } }),
   ]);
   const tags = new Set<string>();
   for (const r of tagRows) for (const t of normalizeTags(r.tags)) tags.add(t);
@@ -381,7 +383,7 @@ export async function loadThreads(query: InboxQuery): Promise<ThreadSummary[]> {
   const q = query.q?.trim();
   if (q) and.push({ OR: [{ subject: { contains: q } }, { contactEmail: { contains: q } }, { contactName: { contains: q } }, { lead: { businessName: { contains: q } } }] });
 
-  const rows = await prisma.inboxThread.findMany({
+  const rows = await (await getDb()).inboxThread.findMany({
     where: { AND: and },
     orderBy: { lastMessageAt: "desc" },
     take: 150,
@@ -408,7 +410,7 @@ export async function loadThreads(query: InboxQuery): Promise<ThreadSummary[]> {
 }
 
 export async function loadThreadMessages(threadId: string): Promise<ThreadMessage[]> {
-  const rows = await prisma.inboxMessage.findMany({ where: { threadId }, orderBy: { sentAt: "asc" }, take: 200 });
+  const rows = await (await getDb()).inboxMessage.findMany({ where: { threadId }, orderBy: { sentAt: "asc" }, take: 200 });
   return rows.map((m) => ({
     id: m.id,
     direction: m.direction,
@@ -422,7 +424,7 @@ export async function loadThreadMessages(threadId: string): Promise<ThreadMessag
 }
 
 export async function unreadThreadCount() {
-  return prisma.inboxThread.count({ where: { unread: true, archived: false } });
+  return (await getDb()).inboxThread.count({ where: { unread: true, archived: false } });
 }
 
 // ─── Overview ────────────────────────────────────────────────
@@ -430,17 +432,17 @@ export async function unreadThreadCount() {
 export async function loadOverview(days = 30): Promise<EmailOverview> {
   const since = new Date(Date.now() - days * 86_400_000);
   const [statRows, daily, campaigns, accounts, activeAutomations, unreadReplies, unsubscribed, contacts, mailable] = await Promise.all([
-    prisma.$queryRaw<StatRow[]>`SELECT NULL AS k, ${STAT_COLUMNS} FROM \`EmailSend\` WHERE sentAt >= ${since} OR (status IN ('QUEUED','SENDING'))`,
-    prisma.$queryRaw<{ d: Date | string; sent: unknown; opened: unknown; replied: unknown }[]>`
+    systemDb.$queryRaw<StatRow[]>`SELECT NULL AS k, ${STAT_COLUMNS} FROM \`EmailSend\` WHERE agencyId = ${(await getAgency()).id} AND (sentAt >= ${since} OR status IN ('QUEUED','SENDING'))`,
+    systemDb.$queryRaw<{ d: Date | string; sent: unknown; opened: unknown; replied: unknown }[]>`
       SELECT DATE(sentAt) AS d, COUNT(*) AS sent, SUM(openedAt IS NOT NULL) AS opened, SUM(repliedAt IS NOT NULL) AS replied
-      FROM \`EmailSend\` WHERE sentAt >= ${since} AND status = 'SENT' GROUP BY DATE(sentAt) ORDER BY d`,
+      FROM \`EmailSend\` WHERE agencyId = ${(await getAgency()).id} AND sentAt >= ${since} AND status = 'SENT' GROUP BY DATE(sentAt) ORDER BY d`,
     loadCampaigns(6),
     loadAccounts(),
-    prisma.automation.count({ where: { status: "ACTIVE" } }),
+    (await getDb()).automation.count({ where: { status: "ACTIVE" } }),
     unreadThreadCount(),
-    prisma.lead.count({ where: { emailOptOut: true, unsubscribedAt: { gte: since } } }),
-    prisma.lead.count({ where: { email: { contains: "@" } } }),
-    prisma.lead.count({ where: { email: { contains: "@" }, emailOptOut: false, emailBouncedAt: null } }),
+    (await getDb()).lead.count({ where: { emailOptOut: true, unsubscribedAt: { gte: since } } }),
+    (await getDb()).lead.count({ where: { email: { contains: "@" } } }),
+    (await getDb()).lead.count({ where: { email: { contains: "@" }, emailOptOut: false, emailBouncedAt: null } }),
   ]);
 
   const byDay = new Map(
@@ -454,7 +456,7 @@ export async function loadOverview(days = 30): Promise<EmailOverview> {
   }
 
   // Outreach funnel: people emailed in the period → engaged → handed to calls → meetings → clients.
-  const [f] = await prisma.$queryRaw<{ emailed: unknown; opened: unknown; replied: unknown; handedOff: unknown; meetings: unknown; clients: unknown }[]>`
+  const [f] = await systemDb.$queryRaw<{ emailed: unknown; opened: unknown; replied: unknown; handedOff: unknown; meetings: unknown; clients: unknown }[]>`
     SELECT COUNT(DISTINCT s.leadId) AS emailed,
       COUNT(DISTINCT CASE WHEN s.openedAt IS NOT NULL THEN s.leadId END) AS opened,
       COUNT(DISTINCT CASE WHEN s.repliedAt IS NOT NULL THEN s.leadId END) AS replied,
@@ -462,7 +464,7 @@ export async function loadOverview(days = 30): Promise<EmailOverview> {
       COUNT(DISTINCT CASE WHEN l.stage IN ('MEETING_BOOKED','SHOWED','NO_SHOW','CLOSED_WON') THEN l.id END) AS meetings,
       COUNT(DISTINCT CASE WHEN l.stage = 'CLOSED_WON' THEN l.id END) AS clients
     FROM \`EmailSend\` s JOIN \`Lead\` l ON l.id = s.leadId
-    WHERE s.status = 'SENT' AND s.sentAt >= ${since}`;
+    WHERE s.agencyId = ${(await getAgency()).id} AND l.agencyId = ${(await getAgency()).id} AND s.status = 'SENT' AND s.sentAt >= ${since}`;
 
   return {
     stats: { ...toStats(statRows[0]), unsubscribed, contacts, mailable },
@@ -478,5 +480,5 @@ export async function loadOverview(days = 30): Promise<EmailOverview> {
 
 /** People who make calls — the targets of "Send to sales calls". */
 export async function loadReps() {
-  return prisma.user.findMany({ where: { active: true, role: { in: ["SALES", "BD"] } }, select: { id: true, name: true }, orderBy: { name: "asc" } });
+  return (await getDb()).user.findMany({ where: { active: true, role: { in: ["SALES", "BD"] } }, select: { id: true, name: true }, orderBy: { name: "asc" } });
 }

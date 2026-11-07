@@ -1,3 +1,4 @@
+import { tenantClient } from "../src/server/tenant-client";
 // `npm run create-admin` — creates (or resets) the Super Admin account.
 // Run it yourself in a terminal: the password is typed hidden and never stored in plain text.
 
@@ -5,7 +6,7 @@ import readline from "readline";
 import bcrypt from "bcryptjs";
 import { PrismaClient } from "@prisma/client";
 
-const prisma = new PrismaClient();
+const prisma = tenantClient(new PrismaClient(), process.env.AGENCY_ID || "default");
 const MIN = 10;
 
 function ask(question: string, hidden = false): Promise<string> {

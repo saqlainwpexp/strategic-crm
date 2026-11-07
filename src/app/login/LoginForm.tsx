@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { signIn } from "next-auth/react";
@@ -97,6 +98,7 @@ export function LoginForm() {
         <Button type="submit" size="lg" className="mt-7 w-full" disabled={pending || !email || !password}>
           {pending ? "Signing in…" : "Sign in"}
         </Button>
+        <p className="mt-5 text-center text-sm">New here? <Link href="/signup" className="font-medium underline">Create your agency account</Link></p>
         <p className="mt-5 text-center text-[12.5px] text-neutral-500">Forgot your password? Ask your manager or admin to reset it.</p>
       </form>
     </div>

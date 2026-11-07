@@ -2,6 +2,7 @@ import { Suspense } from "react";
 import { InboxView } from "@/components/email/InboxView";
 import { loadAccounts, loadReps, loadThreads } from "@/server/email/load";
 import { requireEmailPage } from "@/server/email/access";
+import { aiConfigured } from "@/server/ai/draft";
 
 type Search = Promise<Record<string, string | string[] | undefined>>;
 const one = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v) ?? "";
@@ -16,7 +17,7 @@ export default async function InboxPage({ searchParams }: { searchParams: Search
   ]);
   return (
     <Suspense>
-      <InboxView threads={threads} accounts={accounts} reps={reps} />
+      <InboxView threads={threads} accounts={accounts} reps={reps} aiEnabled={aiConfigured()} />
     </Suspense>
   );
 }

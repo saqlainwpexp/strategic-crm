@@ -12,12 +12,18 @@
     "db:studio": "prisma studio",
     "postinstall": "prisma generate",
     "create-admin": "tsx scripts/create-admin.ts",
-    "set-db-password": "tsx scripts/set-db-password.ts"
+    "set-db-password": "tsx scripts/set-db-password.ts",
+    "li:login": "tsx --env-file=.env scripts/linkedin-worker.ts login",
+    "li:worker": "tsx --env-file=.env scripts/linkedin-worker.ts",
+    "agency": "tsx --env-file=.env scripts/agency.ts",
+    "test:agencies": "tsx --test tests/agencies.test.ts",
+    "test:outreach": "tsx --test tests/outreach-rules.test.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "0.133.0",
     "@dnd-kit/core": "6.1.0",
     "@dnd-kit/sortable": "8.0.0",
     "@dnd-kit/utilities": "3.2.2",
@@ -43,11 +49,12 @@
     "next-auth": "4.24.15",
     "nodemailer": "7.0.13",
     "papaparse": "5.4.1",
+    "playwright-core": "1.48.2",
     "react": "19.3.0",
     "react-dom": "19.3.0",
     "recharts": "2.15.4",
     "tailwind-merge": "2.5.4",
-    "zod": "3.23.8"
+    "zod": "3.25.76"
   },
   "devDependencies": {
     "@types/bcryptjs": "2.4.6",
@@ -65,7 +72,7 @@
     "typescript": "5.6.3"
   },
   "engines": {
-    "node": ">=18.18"
+    "node": ">=22"
   },
   "overrides": {
     "postcss": "8.5.29"

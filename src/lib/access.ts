@@ -18,6 +18,8 @@ export function permissionsFor(role: Role) {
     editScripts: manager,
     /** Email marketing (campaigns, automations, inbox, sending accounts). */
     emailMarketing: manager,
+    /** LinkedIn automation (accounts, campaigns, prospects, inbox). */
+    linkedIn: manager,
     /** Permanently delete leads (and their calls, meetings, payments, email history). */
     deleteLeads: manager,
     /** Super Admin only: branding, custom fields, pools, settings. */

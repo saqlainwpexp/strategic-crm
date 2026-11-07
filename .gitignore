@@ -18,3 +18,9 @@ next-env.d.ts
 
 # Local editor/tool config
 /.claude/
+
+# LinkedIn browser profiles (your logged-in session)
+/.linkedin-profiles/
+
+/.backups/
+/release/

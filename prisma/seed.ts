@@ -1,3 +1,4 @@
+import { tenantClient } from "../src/server/tenant-client";
 // `npm run db:seed` — prepares a fresh database with starter content.
 // Safe to run more than once: each step only runs if that table is still empty.
 // Creates NO users and NO leads — use `npm run create-admin`, then add your team in the app.
@@ -5,10 +6,10 @@
 import { PrismaClient, type Prisma } from "@prisma/client";
 import { STARTER_FIELDS, starterScripts } from "./seed-data";
 
-const prisma = new PrismaClient();
+const prisma = tenantClient(new PrismaClient(), process.env.AGENCY_ID || "default");
 
 async function main() {
-  if (!(await prisma.setting.findUnique({ where: { key: "settings" } }))) {
+  if (!(await prisma.setting.findUnique({ where: { agencyId_key: { agencyId: process.env.AGENCY_ID || "default", key: "settings" } } }))) {
     await prisma.setting.create({
       data: { key: "settings", value: { hotThreshold: 75, warmThreshold: 40, dialerScheme: "zoomphonecall://", reminderMinutes: 30 } },
     });

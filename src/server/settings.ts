@@ -6,7 +6,7 @@ import { cache } from "react";
 import { readFileSync } from "fs";
 import path from "path";
 import type { Prisma } from "@prisma/client";
-import { prisma } from "./db";
+import { getDb, getAgency } from "./db";
 import { DEFAULT_BRANDING, normalizeBranding, type Branding } from "@/lib/branding";
 import type { DialerScheme, Settings } from "@/lib/types";
 
@@ -44,6 +44,7 @@ const json = (v: unknown) => v as Prisma.InputJsonValue;
 // Branding saved before the database existed (Admin → Branding wrote this file).
 const LEGACY_BRANDING_FILE = path.join(process.cwd(), "data", "branding.json");
 function legacyBranding(): Branding | null {
+  return null; // Branding is never imported across agencies.
   try {
     return normalizeBranding(JSON.parse(readFileSync(LEGACY_BRANDING_FILE, "utf8")));
   } catch {
@@ -52,14 +53,14 @@ function legacyBranding(): Branding | null {
 }
 
 /** Saved branding (one DB read per request). Falls back gracefully if the DB is unreachable. */
-export const getBranding = cache(async (): Promise<Branding> => {
+const getBrandingCached = cache(async (_agencyId: string): Promise<Branding> => {
   try {
-    const row = await prisma.setting.findUnique({ where: { key: "branding" } });
+    const row = await (await getDb()).setting.findUnique({ where: { agencyId_key: { agencyId: (await getAgency()).id, key: "branding" } } });
     if (row) return normalizeBranding(row.value);
     // First run: adopt branding saved locally before the database was connected.
     const legacy = legacyBranding();
     if (legacy) {
-      await prisma.setting.create({ data: { key: "branding", value: json(legacy) } });
+      await (await getDb()).setting.create({ data: { key: "branding", value: json(legacy) } });
       return legacy;
     }
   } catch (e) {
@@ -70,15 +71,22 @@ export const getBranding = cache(async (): Promise<Branding> => {
 });
 
 export async function saveBrandingRow(b: Branding) {
-  await prisma.setting.upsert({ where: { key: "branding" }, create: { key: "branding", value: json(b) }, update: { value: json(b) } });
+  await (await getDb()).setting.upsert({ where: { agencyId_key: { agencyId: (await getAgency()).id, key: "branding" } }, create: { key: "branding", value: json(b) }, update: { value: json(b) } });
 }
 
-export const getSettings = cache(async (): Promise<Settings> => {
-  const [row, branding] = await Promise.all([prisma.setting.findUnique({ where: { key: "settings" } }), getBranding()]);
+const getSettingsCached = cache(async (_agencyId: string): Promise<Settings> => {
+  const [row, branding] = await Promise.all([(await getDb()).setting.findUnique({ where: { agencyId_key: { agencyId: (await getAgency()).id, key: "settings" } } }), getBranding()]);
   return { ...normalizeSettings(row?.value), currency: branding.currency, timezone: branding.timezone };
 });
 
 export async function saveSettingsRow(s: Settings) {
   const { currency: _c, timezone: _t, ...rest } = s;
-  await prisma.setting.upsert({ where: { key: "settings" }, create: { key: "settings", value: json(rest) }, update: { value: json(rest) } });
+  await (await getDb()).setting.upsert({ where: { agencyId_key: { agencyId: (await getAgency()).id, key: "settings" } }, create: { key: "settings", value: json(rest) }, update: { value: json(rest) } });
+}
+
+export async function getBranding(): Promise<Branding> {
+  try { return await getBrandingCached((await getAgency()).id); } catch { return DEFAULT_BRANDING; }
+}
+export async function getSettings(): Promise<Settings> {
+  return getSettingsCached((await getAgency()).id);
 }

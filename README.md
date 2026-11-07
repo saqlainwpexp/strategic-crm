@@ -93,3 +93,17 @@ prisma/seed.ts        Starter content for a fresh database
 scripts/create-admin.ts  Creates the Super Admin account
 prisma/schema.prisma  Database schema
 ```
+
+## Public agency signup
+
+Anyone can create an agency at /signup. Registration creates a private workspace and its SUPER_ADMIN owner atomically, then signs the owner in. Team members are added from Team. Each email address belongs to one account. All agencies use the same CRM address.
+
+Every CRM table has an agencyId. The server derives it from the signed session, scopes reads/writes and validates related records; owners cannot access other agencies. Settings and reports are scoped too. Background email jobs run separately per agency, and signed public links include the agency identity.
+
+Existing records belong to the default agency, Strategic Core Solutions. Before upgrading an existing deployment, back up the database and apply prisma/migrations/20261104_agency_signup/migration.sql once. Do not run the migration twice. New installs can use db:push and create the default Agency record before creating an admin; public signup creates agencies automatically.
+
+Use Node.js 22, the existing DATABASE_URL, NEXTAUTH_SECRET, NEXTAUTH_URL and EMAIL_ENCRYPTION_KEY. NEXTAUTH_URL must equal the public HTTPS address. No AGENCIES_JSON or per-agency database/domain setup is needed.
+
+Checks: npm run test:agencies, npx tsc --noEmit, npm run build. The opt-in tests/agency-integration.ts creates temporary workspaces to check signup rollback, ownership, related-record isolation, reports, transactions and signed links, then removes its test records.
+
+Local LinkedIn workers and admin maintenance must select an agency: npm run agency -- <agency-id> li:worker (or li:login / create-admin).

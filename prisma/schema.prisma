@@ -82,6 +82,8 @@ enum CustomFieldType {
 // ─────────────────────────── Core ────────────────────────────
 
 model User {
+  agencyId String @default("default")
+  @@index([agencyId])
   id           String  @id @default(cuid())
   name         String
   email        String  @unique
@@ -111,24 +113,34 @@ model User {
   auditLogs AuditLog[]
   scripts   Script[]
   campaigns Campaign[]
+  outreachThreads    OutreachThread[]
+  outreachActivities OutreachActivity[]
+  outreachTemplates  OutreachTemplate[]
+  socialAccounts     SocialAccount[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([reportsToId])
   @@index([role])
+
 }
 
 model Pool {
+  agencyId String @default("default")
+  @@index([agencyId])
   id          String   @id @default(cuid())
-  name        String   @unique
+  name        String   
   description String?  @db.Text
   leads       Lead[]
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+  @@unique([agencyId, name])
 }
 
 model Lead {
+  agencyId String @default("default")
+  @@index([agencyId])
   id                String        @id @default(cuid())
   businessName      String
   address           String?       @db.Text
@@ -169,6 +181,17 @@ model Lead {
   enrollments    AutomationEnrollment[]
   inboxThreads   InboxThread[]
 
+  // Social DM outreach (LinkedIn, Facebook, Instagram, Threads, …). Company = businessName,
+  // contact person = decisionMakerName, lead source = source.
+  jobTitle         String?
+  industry         String?
+  location         String?
+  connectionDegree String? @db.VarChar(8) // 1st | 2nd | 3rd
+  followerCount    Int?
+  primaryChannel   String? @db.VarChar(20) // a platform id, "phone" or "email"
+  socialProfiles   LeadSocialProfile[]
+  outreachThreads  OutreachThread[]
+
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
   lastContactedAt DateTime?
@@ -183,9 +206,12 @@ model Lead {
   @@index([nextFollowUpAt])
   @@index([phone])
   @@index([email])
+
 }
 
 model CallLog {
+  agencyId String @default("default")
+  @@index([agencyId])
   id          String           @id @default(cuid())
   leadId      String
   lead        Lead             @relation(fields: [leadId], references: [id], onDelete: Cascade)
@@ -203,9 +229,12 @@ model CallLog {
   @@index([leadId])
   @@index([userId])
   @@index([startedAt])
+
 }
 
 model Script {
+  agencyId String @default("default")
+  @@index([agencyId])
   id          String    @id @default(cuid())
   title       String
   category    String?
@@ -216,9 +245,12 @@ model Script {
   calls       CallLog[]
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
+
 }
 
 model Meeting {
+  agencyId String @default("default")
+  @@index([agencyId])
   id          String        @id @default(cuid())
   leadId      String
   lead        Lead          @relation(fields: [leadId], references: [id], onDelete: Cascade)
@@ -236,11 +268,14 @@ model Meeting {
   @@index([userId])
   @@index([leadId])
   @@index([scheduledAt])
+
 }
 
 model Payment {
+  agencyId String @default("default")
+  @@index([agencyId])
   id        String        @id @default(cuid())
-  invoiceNo String        @unique
+  invoiceNo String        
   leadId    String
   lead      Lead          @relation(fields: [leadId], references: [id], onDelete: Cascade)
   userId    String
@@ -256,9 +291,12 @@ model Payment {
   @@index([userId])
   @@index([leadId])
   @@index([status])
+  @@unique([agencyId, invoiceNo])
 }
 
 model TimeLog {
+  agencyId String @default("default")
+  @@index([agencyId])
   id          String    @id @default(cuid())
   userId      String
   user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -268,21 +306,27 @@ model TimeLog {
 
   @@index([userId])
   @@index([clockIn])
+
 }
 
 model CustomFieldDef {
+  agencyId String @default("default")
+  @@index([agencyId])
   id        String          @id @default(cuid())
   name      String // display label
-  key       String          @unique // machine key used in Lead.customFields
+  key       String           // machine key used in Lead.customFields
   type      CustomFieldType @default(TEXT)
   options   Json? // for SELECT
   required  Boolean         @default(false)
   order     Int             @default(0)
   active    Boolean         @default(true)
   createdAt DateTime        @default(now())
+  @@unique([agencyId, key])
 }
 
 model CsvImport {
+  agencyId String @default("default")
+  @@index([agencyId])
   id             String   @id @default(cuid())
   fileName       String
   rowCount       Int      @default(0)
@@ -296,9 +340,12 @@ model CsvImport {
   uploadedById   String?
   uploadedBy     User?    @relation(fields: [uploadedById], references: [id], onDelete: SetNull)
   createdAt      DateTime @default(now())
+
 }
 
 model AuditLog {
+  agencyId String @default("default")
+  @@index([agencyId])
   id         String   @id @default(cuid())
   userId     String?
   user       User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
@@ -310,12 +357,16 @@ model AuditLog {
 
   @@index([userId])
   @@index([createdAt])
+
 }
 
 model Setting {
-  key       String   @id
+  agencyId String @default("default")
+  @@index([agencyId])
+  key       String
   value     Json
   updatedAt DateTime @updatedAt
+  @@id([agencyId, key])
 }
 
 // ─────────────────────── Email marketing ──────────────────────
@@ -363,9 +414,11 @@ enum MessageDirection {
 
 /// A mailbox we send from (SMTP) and read replies from (IMAP). The password is AES-GCM encrypted.
 model EmailAccount {
+  agencyId String @default("default")
+  @@index([agencyId])
   id          String             @id @default(cuid())
   name        String
-  email       String             @unique
+  email       String             
   fromName    String
   provider    String             @default("Custom")
   smtpHost    String
@@ -392,29 +445,38 @@ model EmailAccount {
   threads     InboxThread[]
   createdAt   DateTime           @default(now())
   updatedAt   DateTime           @updatedAt
+  @@unique([agencyId, email])
 }
 
 model EmailDomain {
+  agencyId String @default("default")
+  @@index([agencyId])
   id            String    @id @default(cuid())
-  domain        String    @unique
+  domain        String    
   spfStatus     String    @default("pending")
   dkimStatus    String    @default("pending")
   dmarcStatus   String    @default("pending")
   details       Json?
   lastCheckedAt DateTime?
   createdAt     DateTime  @default(now())
+  @@unique([agencyId, domain])
 }
 
 model EmailTemplate {
+  agencyId String @default("default")
+  @@index([agencyId])
   id        String   @id @default(cuid())
   name      String
   subject   String   @default("")
   html      String   @db.MediumText
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
 }
 
 model Campaign {
+  agencyId String @default("default")
+  @@index([agencyId])
   id             String         @id @default(cuid())
   name           String
   subject        String         @default("")
@@ -439,10 +501,13 @@ model Campaign {
   updatedAt      DateTime       @updatedAt
 
   @@index([status])
+
 }
 
 /// One outgoing email (a campaign recipient or an automation step) and what happened to it.
 model EmailSend {
+  agencyId String @default("default")
+  @@index([agencyId])
   id           String        @id @default(cuid())
   campaignId   String?
   campaign     Campaign?     @relation(fields: [campaignId], references: [id], onDelete: Cascade)
@@ -475,9 +540,12 @@ model EmailSend {
   @@index([automationId])
   @@index([sentAt])
   @@index([messageId])
+
 }
 
 model Automation {
+  agencyId String @default("default")
+  @@index([agencyId])
   id           String                 @id @default(cuid())
   name         String
   trigger      String                 @default("MANUAL") // MANUAL | LEAD_CREATED | STAGE_CHANGED | TAG_ADDED
@@ -490,9 +558,12 @@ model Automation {
   sends        EmailSend[]
   createdAt    DateTime               @default(now())
   updatedAt    DateTime               @updatedAt
+
 }
 
 model AutomationEnrollment {
+  agencyId String @default("default")
+  @@index([agencyId])
   id           String           @id @default(cuid())
   automationId String
   automation   Automation       @relation(fields: [automationId], references: [id], onDelete: Cascade)
@@ -508,9 +579,12 @@ model AutomationEnrollment {
 
   @@unique([automationId, leadId])
   @@index([status, nextRunAt])
+
 }
 
 model InboxThread {
+  agencyId String @default("default")
+  @@index([agencyId])
   id            String         @id @default(cuid())
   accountId     String
   account       EmailAccount   @relation(fields: [accountId], references: [id], onDelete: Cascade)
@@ -527,9 +601,12 @@ model InboxThread {
 
   @@index([accountId, lastMessageAt])
   @@index([contactEmail])
+
 }
 
 model InboxMessage {
+  agencyId String @default("default")
+  @@index([agencyId])
   id         String           @id @default(cuid())
   threadId   String
   thread     InboxThread      @relation(fields: [threadId], references: [id], onDelete: Cascade)
@@ -548,4 +625,413 @@ model InboxMessage {
 
   @@unique([accountId, messageId])
   @@index([threadId, sentAt])
+
+}
+
+// ─────────────────────── LinkedIn automation ──────────────────
+
+enum LiAccountStatus {
+  WARMING
+  ACTIVE
+  PAUSED
+  RESTRICTED
+}
+
+enum LiCampaignStatus {
+  DRAFT
+  ACTIVE
+  PAUSED
+  COMPLETED
+}
+
+enum LiProspectState {
+  QUEUED
+  INVITED
+  CONNECTED
+  REPLIED
+  DONE
+  FAILED
+  SKIPPED
+}
+
+enum LiActionType {
+  VIEW_PROFILE
+  CONNECT
+  MESSAGE
+  FOLLOW_UP
+  WITHDRAW
+  SYNC_INBOX
+}
+
+enum LiActionStatus {
+  PENDING
+  RUNNING
+  DONE
+  FAILED
+  SKIPPED
+}
+
+enum LiConvLabel {
+  INTERESTED
+  NOT_NOW
+  NOT_INTERESTED
+  WRONG_PERSON
+}
+
+/// A LinkedIn sender account with its own proxy and browser profile.
+model LiAccount {
+  agencyId String @default("default")
+  @@index([agencyId])
+  id                 String          @id @default(cuid())
+  name               String
+  ownerName          String          @default("")
+  linkedinEmail      String          @default("")
+  proxyServer        String          @default("")
+  proxyUser          String          @default("")
+  proxyPassEnc       String          @default("") @db.Text
+  profilePath        String          @default("")
+  /// LinkedIn cookies sent by the CRM browser extension (encrypted JSON).
+  sessionEnc         String          @default("") @db.Text
+  sessionUserAgent   String          @default("") @db.VarChar(500)
+  sessionSyncedAt    DateTime?
+  timezone           String          @default("America/New_York")
+  locale             String          @default("en-US")
+  status             LiAccountStatus @default(WARMING)
+  warmupWeeks        Int             @default(0)
+  maxDailyConnects   Int             @default(10)
+  maxDailyMessages   Int             @default(20)
+  maxDailyViews      Int             @default(30)
+  connectsThisWeek   Int             @default(0)
+  connectsWindowStart DateTime?
+  connectsToday      Int             @default(0)
+  messagesToday      Int             @default(0)
+  viewsToday         Int             @default(0)
+  actionDay          String          @default("")
+  lastActionAt       DateTime?
+  lastSyncAt         DateTime?
+  lastError          String?         @db.Text
+  notes              String?         @db.Text
+  actions            LiAction[]
+  campaignProspects  LiCampaignProspect[]
+  conversations      LiConversation[]
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
+
+  @@index([status])
+
+}
+
+/// A LinkedIn prospect (potential outreach target).
+model LiProspect {
+  agencyId String @default("default")
+  @@index([agencyId])
+  id           String   @id @default(cuid())
+  linkedinUrl  String   
+  firstName    String   @default("")
+  lastName     String   @default("")
+  title        String   @default("")
+  company      String   @default("")
+  location     String   @default("")
+  tags         Json?
+  source       String   @default("manual")
+  notes        String?  @db.Text
+  campaignProspects LiCampaignProspect[]
+  actions      LiAction[]
+  conversations LiConversation[]
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([company])
+  @@unique([agencyId, linkedinUrl])
+}
+
+/// Reusable LinkedIn message template with {firstName}, {company} placeholders.
+model LiTemplate {
+  agencyId String @default("default")
+  @@index([agencyId])
+  id        String   @id @default(cuid())
+  name      String
+  body      String   @db.Text
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+}
+
+/// A LinkedIn outreach campaign (sequence of steps sent by chosen accounts).
+model LiCampaign {
+  agencyId String @default("default")
+  @@index([agencyId])
+  id               String           @id @default(cuid())
+  name             String
+  status           LiCampaignStatus @default(DRAFT)
+  steps            Json
+  senderAccountIds Json
+  startDate        DateTime?
+  prospects        LiCampaignProspect[]
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+
+  @@index([status])
+
+}
+
+/// Where each prospect is in a campaign (one account owns them for the whole sequence).
+model LiCampaignProspect {
+  agencyId String @default("default")
+  @@index([agencyId])
+  id           String          @id @default(cuid())
+  campaignId   String
+  campaign     LiCampaign      @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  prospectId   String
+  prospect     LiProspect      @relation(fields: [prospectId], references: [id], onDelete: Cascade)
+  accountId    String
+  account      LiAccount       @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  stepIndex    Int             @default(0)
+  nextActionAt DateTime?
+  state        LiProspectState @default(QUEUED)
+  failReason   String?         @db.Text
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+
+  @@unique([campaignId, prospectId])
+  @@index([accountId, nextActionAt])
+  @@index([state])
+
+}
+
+/// Full log of every action the worker performed (or tried to perform).
+model LiAction {
+  agencyId String @default("default")
+  @@index([agencyId])
+  id             String         @id @default(cuid())
+  accountId      String
+  account        LiAccount      @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  prospectId     String?
+  prospect       LiProspect?    @relation(fields: [prospectId], references: [id], onDelete: SetNull)
+  type           LiActionType
+  status         LiActionStatus @default(PENDING)
+  dryRun         Boolean        @default(true)
+  error          String?        @db.Text
+  screenshotPath String?
+  createdAt      DateTime       @default(now())
+
+  @@index([accountId, type, createdAt])
+  @@index([prospectId])
+
+}
+
+/// One LinkedIn conversation thread (one per lead per account).
+model LiConversation {
+  agencyId String @default("default")
+  @@index([agencyId])
+  id              String          @id @default(cuid())
+  accountId       String
+  account         LiAccount       @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  prospectId      String?
+  prospect        LiProspect?     @relation(fields: [prospectId], references: [id], onDelete: SetNull)
+  threadUrl       String          @default("") @db.VarChar(500)
+  label           LiConvLabel?
+  unread          Boolean         @default(true)
+  stoppedByReply  Boolean         @default(false)
+  lastMessageAt   DateTime
+  messages        LiMessage[]
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  @@index([accountId, lastMessageAt])
+
+}
+
+model LiMessage {
+  agencyId String @default("default")
+  @@index([agencyId])
+  id             String           @id @default(cuid())
+  conversationId String
+  conversation   LiConversation   @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  direction      MessageDirection
+  text           String           @db.Text
+  sentAt         DateTime
+  /// Reply typed in the CRM inbox that the local worker still has to send on LinkedIn.
+  pendingSend    Boolean          @default(false)
+  createdAt      DateTime         @default(now())
+
+  @@index([conversationId, sentAt])
+
+}
+
+model Agency {
+  id String @id @default(cuid())
+  name String
+  active Boolean @default(true)
+  createdAt DateTime @default(now())
+}
+
+model SignupLimit {
+  key String @id
+  count Int @default(1)
+  expiresAt DateTime
+  @@index([expiresAt])
+}
+
+// ─────────────────────── Social outreach ──────────────────────
+// Manual DM tracking. Platforms are plain ids from src/lib/outreach/platforms.ts so a new
+// network needs no migration.
+
+enum OutreachStage {
+  not_contacted
+  connection_sent
+  connected
+  message_sent
+  replied
+  interested
+  call_booked
+  won
+  lost
+  not_interested
+  no_response
+}
+
+enum ReplySentiment {
+  positive
+  neutral
+  negative
+  objection
+}
+
+enum OutreachDirection {
+  outbound
+  inbound
+}
+
+enum OutreachActivityType {
+  connection_request
+  dm
+  comment
+  like
+  story_reply
+  voice_note
+}
+
+/// One social profile of a lead. `key` is the normalised URL/handle used for duplicate checks.
+model LeadSocialProfile {
+  agencyId  String   @default("default")
+  id        String   @id @default(cuid())
+  leadId    String
+  lead      Lead     @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  platform  String   @db.VarChar(20)
+  url       String   @db.VarChar(500)
+  key       String   @db.VarChar(300)
+  createdAt DateTime @default(now())
+
+  @@unique([agencyId, platform, key])
+  @@unique([agencyId, leadId, platform])
+  @@index([agencyId])
+  @@index([leadId])
+}
+
+model OutreachThread {
+  agencyId             String          @default("default")
+  id                   String          @id @default(cuid())
+  leadId               String
+  lead                 Lead            @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  ownerId              String?
+  owner                User?           @relation(fields: [ownerId], references: [id], onDelete: SetNull)
+  platform             String          @db.VarChar(20)
+  threadUrl            String?         @db.VarChar(500)
+  stage                OutreachStage   @default(not_contacted)
+  connectionSentAt     DateTime?
+  connectionAcceptedAt DateTime?
+  firstMessageAt       DateTime?
+  lastOutboundAt       DateTime?
+  lastInboundAt        DateTime?
+  followupCount        Int             @default(0)
+  nextFollowupAt       DateTime?
+  replySentiment       ReplySentiment?
+  templateId           String?
+  template             OutreachTemplate? @relation(fields: [templateId], references: [id], onDelete: SetNull)
+  campaignId           String?
+  campaign             OutreachCampaign? @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+  notes                String?         @db.Text
+  activities           OutreachActivity[]
+  createdAt            DateTime        @default(now())
+  updatedAt            DateTime        @updatedAt
+
+  @@unique([agencyId, leadId, platform])
+  @@index([agencyId])
+  @@index([ownerId])
+  @@index([stage])
+  @@index([nextFollowupAt])
+  @@index([campaignId])
+}
+
+model OutreachActivity {
+  agencyId    String               @default("default")
+  id          String               @id @default(cuid())
+  threadId    String
+  thread      OutreachThread       @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  userId      String?
+  user        User?                @relation(fields: [userId], references: [id], onDelete: SetNull)
+  platform    String               @db.VarChar(20) // copied from the thread for fast daily counts
+  direction   OutreachDirection
+  type        OutreachActivityType
+  messageText String?              @db.Text
+  occurredAt  DateTime             @default(now())
+
+  @@index([agencyId])
+  @@index([threadId])
+  @@index([userId, platform, occurredAt])
+  @@index([occurredAt])
+}
+
+model OutreachTemplate {
+  agencyId    String             @default("default")
+  id          String             @id @default(cuid())
+  name        String
+  platform    String             @db.VarChar(20) // a platform id or "any"
+  body        String             @db.Text // supports {first_name} {company} {job_title}
+  active      Boolean            @default(true)
+  createdById String?
+  createdBy   User?              @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  threads     OutreachThread[]
+  campaigns   OutreachCampaign[]
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+
+  @@index([agencyId])
+}
+
+model OutreachCampaign {
+  agencyId   String            @default("default")
+  id         String            @id @default(cuid())
+  name       String
+  platform   String            @db.VarChar(20)
+  audience   String?           @db.Text
+  templateId String?
+  template   OutreachTemplate? @relation(fields: [templateId], references: [id], onDelete: SetNull)
+  startDate  DateTime?
+  dailyLimit Int?
+  goal       String?           @db.Text
+  status     String            @default("active") @db.VarChar(20) // draft | active | paused | completed
+  threads    OutreachThread[]
+  createdAt  DateTime          @default(now())
+  updatedAt  DateTime          @updatedAt
+
+  @@index([agencyId])
+}
+
+/// A rep's account on one platform, with their daily sending limits.
+model SocialAccount {
+  agencyId             String   @default("default")
+  id                   String   @id @default(cuid())
+  userId               String
+  user                 User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  platform             String   @db.VarChar(20)
+  handle               String   @default("")
+  dailyConnectionLimit Int      @default(20)
+  dailyDmLimit         Int      @default(50)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  @@unique([agencyId, userId, platform])
+  @@index([agencyId])
 }

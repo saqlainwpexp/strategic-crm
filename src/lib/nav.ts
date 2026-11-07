@@ -43,8 +43,8 @@ export function navFor(role: Role): { primary: NavKey[]; more: NavKey[] } {
 
 // ─── Email marketing ─────────────────────────────────────────
 
-/** The two apps behind the logo switcher. */
-export type AppMode = "calling" | "email";
+/** The three apps behind the logo switcher. */
+export type AppMode = "calling" | "email" | "linkedin";
 
 export const EMAIL_HOME = "/email";
 
@@ -66,5 +66,27 @@ export const EMAIL_NAV_ORDER: { primary: EmailNavKey[]; more: EmailNavKey[] } = 
 };
 
 export function modeFor(pathname: string): AppMode {
-  return pathname === "/email" || pathname.startsWith("/email/") ? "email" : "calling";
+  if (pathname === "/email" || pathname.startsWith("/email/")) return "email";
+  if (pathname === "/linkedin" || pathname.startsWith("/linkedin/")) return "linkedin";
+  return "calling";
 }
+
+// ─── LinkedIn automation ─────────────────────────────────────
+
+export const LINKEDIN_HOME = "/linkedin";
+
+export type LinkedInNavKey = "overview" | "accounts" | "campaigns" | "prospects" | "inbox" | "templates";
+
+export const LINKEDIN_NAV: Record<LinkedInNavKey, { label: string; href: string; exact?: boolean }> = {
+  overview: { label: "Dashboard", href: "/linkedin", exact: true },
+  accounts: { label: "Accounts", href: "/linkedin/accounts" },
+  campaigns: { label: "Campaigns", href: "/linkedin/campaigns" },
+  prospects: { label: "Prospects", href: "/linkedin/prospects" },
+  inbox: { label: "Inbox", href: "/linkedin/inbox" },
+  templates: { label: "Templates", href: "/linkedin/templates" },
+};
+
+export const LINKEDIN_NAV_ORDER: { primary: LinkedInNavKey[]; more: LinkedInNavKey[] } = {
+  primary: ["overview", "accounts", "campaigns", "prospects", "inbox"],
+  more: ["templates"],
+};

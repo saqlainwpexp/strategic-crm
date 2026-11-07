@@ -22,9 +22,11 @@ import {
   Inbox,
   LayoutGrid,
   LayoutTemplate,
+  Linkedin,
   ListOrdered,
   Mail,
   MailPlus,
+  MessageSquarePlus,
   Moon,
   PhoneCall,
   Search,
@@ -45,11 +47,15 @@ import {
   EMAIL_NAV,
   EMAIL_NAV_ORDER,
   HOME_PATH,
+  LINKEDIN_HOME,
+  LINKEDIN_NAV,
+  LINKEDIN_NAV_ORDER,
   NAV_ITEMS,
   modeFor,
   navFor,
   type AppMode,
   type EmailNavKey,
+  type LinkedInNavKey,
   type NavKey,
 } from "@/lib/nav";
 import { ROLE_LABELS } from "@/lib/constants";
@@ -85,6 +91,15 @@ const EMAIL_ICONS: Record<EmailNavKey, LucideIcon> = {
   sending: AtSign,
 };
 
+const LINKEDIN_ICONS: Record<LinkedInNavKey, LucideIcon> = {
+  overview: LayoutGrid,
+  accounts: Users,
+  campaigns: Send,
+  prospects: Contact,
+  inbox: Inbox,
+  templates: LayoutTemplate,
+};
+
 /** Header stays pinned while the page scrolls; content slides under a frosted page-coloured backdrop. */
 const STICKY = "sticky top-0 z-40 bg-page/85 backdrop-blur-md";
 
@@ -100,21 +115,27 @@ function useNav() {
   const pathname = usePathname();
   const { viewer, perms } = useCrm();
   const unread = useContext(UnreadReplies);
-  const mode: AppMode = perms.emailMarketing ? modeFor(pathname) : "calling";
+  const canSwitch = perms.emailMarketing || perms.linkedIn;
+  const mode: AppMode = canSwitch ? modeFor(pathname) : "calling";
   let primary: NavEntry[];
   let more: NavEntry[];
   if (mode === "email") {
     const entry = (k: EmailNavKey): NavEntry => ({ key: k, ...EMAIL_NAV[k], icon: EMAIL_ICONS[k], badge: k === "inbox" ? unread : undefined });
     primary = EMAIL_NAV_ORDER.primary.map(entry);
     more = EMAIL_NAV_ORDER.more.map(entry);
+  } else if (mode === "linkedin") {
+    const entry = (k: LinkedInNavKey): NavEntry => ({ key: k, ...LINKEDIN_NAV[k], icon: LINKEDIN_ICONS[k] });
+    primary = LINKEDIN_NAV_ORDER.primary.map(entry);
+    more = LINKEDIN_NAV_ORDER.more.map(entry);
   } else {
     const { primary: p, more: m } = navFor(viewer.role);
     const entry = (k: NavKey): NavEntry => ({ key: k, ...NAV_ITEMS[k], icon: NAV_ICONS[k] });
     primary = p.map(entry);
     more = m.map(entry);
   }
+  const home = mode === "email" ? EMAIL_HOME : mode === "linkedin" ? LINKEDIN_HOME : HOME_PATH;
   const isActive = (e: NavEntry) => (e.exact ? pathname === e.href : pathname === e.href || pathname.startsWith(`${e.href}/`));
-  return { mode, home: mode === "email" ? EMAIL_HOME : HOME_PATH, primary, more, isActive, canSwitch: perms.emailMarketing };
+  return { mode, home, primary, more, isActive, canSwitch };
 }
 
 function CountBadge({ n, onDark }: { n?: number; onDark?: boolean }) {
@@ -172,16 +193,19 @@ export function TopNav({ unreadReplies = 0 }: { unreadReplies?: number }) {
 
 // ─── App switcher (logo) ─────────────────────────────────────
 
-const APPS: { mode: AppMode; label: string; hint: string; href: string; icon: LucideIcon }[] = [
+const APPS: { mode: AppMode; label: string; hint: string; href: string; icon: LucideIcon; perm?: "emailMarketing" | "linkedIn" }[] = [
   { mode: "calling", label: "Cold Calling CRM", hint: "Loadboard, leads, pipeline & team", href: HOME_PATH, icon: PhoneCall },
-  { mode: "email", label: "Email Marketing", hint: "Campaigns, automations & inbox", href: EMAIL_HOME, icon: Mail },
+  { mode: "email", label: "Email Marketing", hint: "Campaigns, automations & inbox", href: EMAIL_HOME, icon: Mail, perm: "emailMarketing" },
+  { mode: "linkedin", label: "Strategic LinkedIn", hint: "Outreach campaigns & inbox", href: LINKEDIN_HOME, icon: Linkedin, perm: "linkedIn" },
 ];
 
 function AppSwitcher({ variant, open, onToggle, onClose }: { variant: Variant; open: boolean; onToggle: () => void; onClose: () => void }) {
   const { branding } = useBranding();
   const { mode, home, canSwitch } = useNav();
+  const { perms } = useCrm();
   const ref = useDismiss(open, onClose);
-  const current = APPS.find((a) => a.mode === mode)!;
+  const visibleApps = APPS.filter((a) => !a.perm || perms[a.perm]);
+  const current = visibleApps.find((a) => a.mode === mode) ?? visibleApps[0]!;
 
   const mark =
     variant === "bar" ? (
@@ -192,7 +216,7 @@ function AppSwitcher({ variant, open, onToggle, onClose }: { variant: Variant; o
         {branding.showNameInHeader && (
           <span className="hidden min-w-0 flex-col leading-tight sm:flex">
             <span className="text-[16px] font-semibold tracking-[-0.01em]">{branding.appName}</span>
-            {canSwitch && <span className="text-[11.5px] font-medium text-header-fg/60">{mode === "email" ? "Email Marketing" : "Cold Calling"}</span>}
+            {canSwitch && <span className="text-[11.5px] font-medium text-header-fg/60">{mode === "email" ? "Email Marketing" : mode === "linkedin" ? "LinkedIn" : "Cold Calling"}</span>}
           </span>
         )}
       </>
@@ -223,7 +247,7 @@ function AppSwitcher({ variant, open, onToggle, onClose }: { variant: Variant; o
       {open && (
         <div className={cn(panel, "left-0 w-[min(320px,calc(100vw-48px))] p-2.5")} role="menu">
           <p className="px-3 pb-2 pt-1.5 text-[11.5px] uppercase tracking-[0.06em] text-neutral-400">Switch to</p>
-          {APPS.map((a) => {
+          {visibleApps.map((a) => {
             const active = a.mode === mode;
             return (
               <Link
@@ -275,6 +299,11 @@ function BarHeader() {
         {mode === "email" ? (
           <Link href="/email/campaigns/new" className={cn(tile, "hidden md:inline-flex")}>
             <MailPlus className="h-[18px] w-[18px]" strokeWidth={1.8} />
+            <span className="hidden 2xl:inline">New campaign</span>
+          </Link>
+        ) : mode === "linkedin" ? (
+          <Link href="/linkedin/campaigns?new=1" className={cn(tile, "hidden md:inline-flex")}>
+            <MessageSquarePlus className="h-[18px] w-[18px]" strokeWidth={1.8} />
             <span className="hidden 2xl:inline">New campaign</span>
           </Link>
         ) : (
@@ -370,7 +399,14 @@ function CreateMenu({ open, onToggle, onClose }: { open: boolean; onToggle: () =
   const [modal, setModal] = useState<null | "meeting" | "payment">(null);
 
   const items: { icon: LucideIcon; label: string; hint: string; run: () => void }[] =
-    mode === "email"
+    mode === "linkedin"
+      ? [
+          { icon: MessageSquarePlus, label: "New campaign", hint: "Outreach sequence", run: () => router.push("/linkedin/campaigns?new=1") },
+          { icon: Users, label: "Add account", hint: "LinkedIn sender account", run: () => router.push("/linkedin/accounts?new=1") },
+          { icon: Upload, label: "Import prospects", hint: "Upload a CSV file", run: () => router.push("/linkedin/prospects?import=1") },
+          { icon: LayoutTemplate, label: "New template", hint: "Reusable message text", run: () => router.push("/linkedin/templates?new=1") },
+        ]
+      : mode === "email"
       ? [
           { icon: Send, label: "New campaign", hint: "Email a list of contacts", run: () => router.push("/email/campaigns/new") },
           { icon: Workflow, label: "New automation", hint: "A follow-up email sequence", run: () => router.push("/email/automations/new") },

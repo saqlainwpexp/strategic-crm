@@ -3,7 +3,9 @@
 import type { NextAuthOptions } from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
 import bcrypt from "bcryptjs";
-import { prisma } from "./db";
+import { getDb, withAgency } from "./db";
+import { systemDb } from "./system-db";
+import { publicUrl } from "./agencies";
 import { audit } from "./audit";
 
 export const BCRYPT_ROUNDS = 12;
@@ -54,13 +56,16 @@ export const authOptions: NextAuthOptions = {
 
         const ip = clientIp(req?.headers as Record<string, unknown> | undefined);
         if (!ipAllowed(ip)) {
-          await audit(null, "auth.throttled", "IP", ip);
+          // No tenant is authenticated yet.
           return null;
         }
 
-        const user = await prisma.user.findUnique({ where: { email } });
+        const user = await systemDb.user.findUnique({ where: { email } });
         const passwordOk = await bcrypt.compare(password, user?.passwordHash ?? DUMMY_HASH);
         if (!user || !user.active) return null;
+        const agency = await systemDb.agency.findUnique({ where: { id: user.agencyId } });
+        if (!agency?.active) return null;
+        return withAgency(user.agencyId, async () => {
         if (user.lockedUntil && user.lockedUntil > new Date()) {
           await audit(user.id, "auth.blocked_locked", "User", user.id, { ip });
           return null;
@@ -68,7 +73,7 @@ export const authOptions: NextAuthOptions = {
         if (!passwordOk) {
           const failed = user.failedLogins + 1;
           const lock = failed >= MAX_FAILED_LOGINS;
-          await prisma.user.update({
+          await (await getDb()).user.update({
             where: { id: user.id },
             data: { failedLogins: lock ? 0 : failed, lockedUntil: lock ? new Date(Date.now() + LOCK_MINUTES * 60 * 1000) : null },
           });
@@ -76,15 +81,22 @@ export const authOptions: NextAuthOptions = {
           return null;
         }
 
-        await prisma.user.update({ where: { id: user.id }, data: { failedLogins: 0, lockedUntil: null, lastLoginAt: new Date() } });
+        await (await getDb()).user.update({ where: { id: user.id }, data: { failedLogins: 0, lockedUntil: null, lastLoginAt: new Date() } });
         await audit(user.id, "auth.login", "User", user.id, { ip });
-        return { id: user.id, name: user.name, email: user.email, pv: user.passwordChangedAt?.getTime() ?? 0 };
+        return { agencyId: user.agencyId, id: user.id, name: user.name, email: user.email, pv: user.passwordChangedAt?.getTime() ?? 0 };
+        });
       },
     }),
   ],
   callbacks: {
+    async redirect({ url }) {
+      const base = publicUrl();
+      const target = new URL(url, base);
+      return target.origin === new URL(base).origin ? target.toString() : base;
+    },
     async jwt({ token, user }) {
       if (user) {
+        token.agencyId = (user as { agencyId?: string }).agencyId;
         token.uid = user.id;
         token.pv = (user as { pv?: number }).pv ?? 0;
       }
@@ -92,6 +104,7 @@ export const authOptions: NextAuthOptions = {
     },
     async session({ session, token }) {
       if (session.user) {
+        session.user.agencyId = token.agencyId;
         session.user.id = token.uid as string;
         session.user.pv = (token.pv as number) ?? 0;
       }

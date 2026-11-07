@@ -30,6 +30,11 @@ import { MeetingModal } from "@/components/shared/MeetingModal";
 import { DeleteLeadsWarning } from "@/components/shared/DeleteLeadsWarning";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { CallPanel } from "./CallPanel";
+import { LeadSocialPanel, SocialLinks } from "@/components/outreach/LeadSocialPanel";
+import { PlatformIcon } from "@/components/outreach/PlatformIcon";
+import { useOutreach } from "@/components/providers/OutreachProvider";
+import { ACTIVITY_LABEL, platformLabel } from "@/lib/outreach/platforms";
+import { MessageCircle } from "lucide-react";
 import {
   CONNECT_DISPOSITIONS,
   DISPOSITION_LABELS,
@@ -45,7 +50,7 @@ import { dialHref } from "@/lib/dial";
 import { dayKey, dayLabel, formatDateTime, formatDateYear, formatTime } from "@/lib/date";
 import { cn, formatDuration, formatMoney } from "@/lib/utils";
 
-type Tab = "overview" | "activity" | "notes";
+type Tab = "overview" | "activity" | "social" | "notes";
 
 export function LeadDrawer({
   leadId,
@@ -62,6 +67,7 @@ export function LeadDrawer({
   afterCall?: () => void;
 }) {
   const { leadById, data, tempOf, perms, deleteLeads } = useCrm();
+  const outreach = useOutreach().data;
   const lead = leadId ? leadById(leadId) : undefined;
   const { confirm, dialog } = useConfirm();
   const [tab, setTab] = useState<Tab>("overview");
@@ -74,8 +80,13 @@ export function LeadDrawer({
   }, [leadId, startCall]);
 
   const activityCount = useMemo(
-    () => (lead ? data.calls.filter((c) => c.leadId === lead.id).length + data.meetings.filter((m) => m.leadId === lead.id).length : 0),
-    [lead, data.calls, data.meetings]
+    () =>
+      lead
+        ? data.calls.filter((c) => c.leadId === lead.id).length +
+          data.meetings.filter((m) => m.leadId === lead.id).length +
+          outreach.activities.filter((a) => a.leadId === lead.id).length
+        : 0,
+    [lead, data.calls, data.meetings, outreach.activities]
   );
 
   return (
@@ -128,6 +139,7 @@ export function LeadDrawer({
                     Book meeting
                   </Button>
                   <div className="ml-auto flex items-center gap-2">
+                    <SocialLinks leadId={lead.id} />
                     {lead.email && (
                       <a href={`mailto:${lead.email}`} aria-label="Email" title="Email" className="grid h-11 w-11 place-items-center rounded-full bg-page hover:bg-neutral-200">
                         <Mail className="h-4 w-4" />
@@ -180,6 +192,7 @@ export function LeadDrawer({
                 options={[
                   { value: "overview", label: "Overview" },
                   { value: "activity", label: "Activity", count: activityCount },
+                  { value: "social", label: "Social", count: outreach.threads.filter((t) => t.leadId === lead.id).length || undefined },
                   { value: "notes", label: "Notes" },
                 ]}
               />
@@ -187,6 +200,7 @@ export function LeadDrawer({
               <div className="mt-6">
                 {tab === "overview" && <Overview lead={lead} />}
                 {tab === "activity" && <Activity lead={lead} />}
+                {tab === "social" && <LeadSocialPanel lead={lead} />}
                 {tab === "notes" && <Notes lead={lead} />}
               </div>
             </div>
@@ -400,6 +414,7 @@ function formatCustom(def: CustomFieldDef, value: CustomFieldValue | undefined) 
 
 function Activity({ lead }: { lead: Lead }) {
   const { data, userById, updateMeeting } = useCrm();
+  const outreach = useOutreach().data;
   const now = new Date().toISOString();
   const items = useMemo(() => {
     const calls = data.calls
@@ -408,11 +423,14 @@ function Activity({ lead }: { lead: Lead }) {
     const meetings = data.meetings
       .filter((m) => m.leadId === lead.id)
       .map((m) => ({ kind: "meeting" as const, at: m.scheduledAt, meeting: m }));
-    return [...calls, ...meetings].sort((a, b) => b.at.localeCompare(a.at));
-  }, [data.calls, data.meetings, lead.id]);
+    const social = outreach.activities
+      .filter((a) => a.leadId === lead.id)
+      .map((a) => ({ kind: "social" as const, at: a.occurredAt, activity: a }));
+    return [...calls, ...meetings, ...social].sort((a, b) => b.at.localeCompare(a.at));
+  }, [data.calls, data.meetings, outreach.activities, lead.id]);
 
   if (!items.length)
-    return <p className="rounded-2xl bg-soft px-5 py-10 text-center text-[13.5px] text-neutral-500">No calls or meetings yet.</p>;
+    return <p className="rounded-2xl bg-soft px-5 py-10 text-center text-[13.5px] text-neutral-500">No calls, meetings or social activity yet.</p>;
 
   return (
     <ol className="relative">
@@ -429,6 +447,21 @@ function Activity({ lead }: { lead: Lead }) {
                 {script ? ` · ${script.title}` : ""}
               </p>
               {c.notes && <p className="mt-2 rounded-xl bg-soft px-3.5 py-2.5 text-[13px] text-neutral-700">{c.notes}</p>}
+            </TimelineItem>
+          );
+        }
+        if (it.kind === "social") {
+          const a = it.activity;
+          return (
+            <TimelineItem key={a.id} last={i === items.length - 1} icon={MessageCircle} tone={a.direction === "inbound" ? "brand" : "soft"}>
+              <p className="flex items-center gap-2 text-[14px] font-medium">
+                <PlatformIcon platform={a.platform} size={18} />
+                {a.direction === "inbound" ? `They replied on ${platformLabel(a.platform)}` : `${ACTIVITY_LABEL[a.type]} sent on ${platformLabel(a.platform)}`}
+              </p>
+              <p className="mt-1 text-[12.5px] text-neutral-500">
+                {userById(a.userId)?.name ?? "—"} · {formatDateTime(a.occurredAt)}
+              </p>
+              {a.messageText && <p className="mt-2 rounded-xl bg-soft px-3.5 py-2.5 text-[13px] text-neutral-700">{a.messageText}</p>}
             </TimelineItem>
           );
         }

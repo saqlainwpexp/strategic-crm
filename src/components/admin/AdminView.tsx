@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { SocialAdmin } from "@/components/outreach/SocialAdmin";
 import { Layers, Pencil, Plus, Shuffle, Upload } from "lucide-react";
 import { useCrm } from "@/components/providers/CrmProvider";
 import { Card, CardHeader } from "@/components/ui/Card";
@@ -21,7 +22,7 @@ import { cn } from "@/lib/utils";
 import { currency } from "@/lib/currency";
 import { TIMEZONES, appTimeZone, tzAbbrev } from "@/lib/date";
 
-type Tab = "branding" | "fields" | "pools" | "imports" | "settings";
+type Tab = "branding" | "fields" | "pools" | "imports" | "social" | "settings";
 const FIELD_TYPES: { value: CustomFieldType; label: string }[] = [
   { value: "TEXT", label: "Text" },
   { value: "NUMBER", label: "Number" },
@@ -48,6 +49,7 @@ export function AdminView() {
               { value: "fields", label: "Custom fields" },
               { value: "pools", label: "Lead pools" },
               { value: "imports", label: "Imports" },
+              { value: "social", label: "Social" },
               { value: "settings", label: "Settings" },
             ]}
           />
@@ -57,6 +59,7 @@ export function AdminView() {
       {tab === "fields" && <FieldsTab />}
       {tab === "pools" && <PoolsTab />}
       {tab === "imports" && <ImportsTab />}
+      {tab === "social" && <SocialAdmin />}
       {tab === "settings" && <SettingsTab />}
     </div>
   );

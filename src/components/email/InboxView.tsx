@@ -15,13 +15,14 @@ import { dayKey, dayLabel, formatDateTime, formatTime, todayKey } from "@/lib/da
 import type { EmailAccountView, ThreadMessage, ThreadSummary } from "@/lib/email-types";
 import { getThreadAction, handoffThreadAction, replyThreadAction, syncInboxNowAction, updateThreadAction } from "@/server/email/actions";
 import { HandoffButton } from "./HandoffButton";
+import { AiAssist } from "./AiAssist";
 import { useEmailAction } from "./kit";
 
 type Folder = "inbox" | "unread" | "archived";
 
 const when = (iso: string) => (dayKey(iso) === todayKey() ? formatTime(iso) : dayLabel(dayKey(iso)));
 
-export function InboxView({ threads, accounts, reps }: { threads: ThreadSummary[]; accounts: EmailAccountView[]; reps: { id: string; name: string }[] }) {
+export function InboxView({ threads, accounts, reps, aiEnabled }: { threads: ThreadSummary[]; accounts: EmailAccountView[]; reps: { id: string; name: string }[]; aiEnabled: boolean }) {
   const router = useRouter();
   const pathname = usePathname();
   const params = useSearchParams();
@@ -144,7 +145,7 @@ export function InboxView({ threads, accounts, reps }: { threads: ThreadSummary[
         {/* Conversation */}
         <div className={cn("min-w-0", !open && "hidden lg:block")}>
           {open ? (
-            <Conversation key={open.id} thread={open} reps={reps} onBack={() => setParams({ thread: null })} />
+            <Conversation key={open.id} thread={open} reps={reps} aiEnabled={aiEnabled} onBack={() => setParams({ thread: null })} />
           ) : (
             <EmptyState icon={Mail} title="Pick a conversation" body="Select a reply on the left to read it and answer." className="h-full" />
           )}
@@ -154,7 +155,7 @@ export function InboxView({ threads, accounts, reps }: { threads: ThreadSummary[
   );
 }
 
-function Conversation({ thread, reps, onBack }: { thread: ThreadSummary; reps: { id: string; name: string }[]; onBack: () => void }) {
+function Conversation({ thread, reps, aiEnabled, onBack }: { thread: ThreadSummary; reps: { id: string; name: string }[]; aiEnabled: boolean; onBack: () => void }) {
   const { run, busy } = useEmailAction();
   const [messages, setMessages] = useState<ThreadMessage[] | null>(null);
   const [reply, setReply] = useState("");
@@ -219,7 +220,8 @@ function Conversation({ thread, reps, onBack }: { thread: ThreadSummary; reps: {
       </div>
 
       <div className="border-t border-neutral-100 p-5">
-        <Textarea value={reply} onChange={(e) => setReply(e.target.value)} placeholder={`Reply to ${thread.contactName || thread.contactEmail}…`} className="min-h-[96px]" />
+        {aiEnabled && <AiAssist threadId={thread.id} current={reply} onDraft={setReply} lastFromUs={messages?.[messages.length - 1]?.direction === "OUT"} />}
+        <Textarea value={reply} onChange={(e) => setReply(e.target.value)} placeholder={`Reply to ${thread.contactName || thread.contactEmail}…`} className="min-h-[160px]" />
         <div className="mt-3 flex items-center justify-between gap-3">
           <p className="text-[12px] text-neutral-500">Sends from {thread.accountEmail} with your signature, in the same email thread.</p>
           <Button

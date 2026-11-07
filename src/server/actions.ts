@@ -7,7 +7,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import bcrypt from "bcryptjs";
 import { Prisma } from "@prisma/client";
-import { prisma } from "./db";
+import { getDb, getAgency } from "./db";
 import { audit } from "./audit";
 import { AuthError, requireActionUser, visibleUserIds } from "./session";
 import { BCRYPT_ROUNDS, MIN_PASSWORD_LENGTH } from "./auth";
@@ -104,7 +104,7 @@ function inScope(ids: Set<string> | null, userId: string | null) {
 }
 
 async function leadInScope(me: User, leadId: string) {
-  const lead = await prisma.lead.findUnique({ where: { id: leadId }, select: { id: true, assignedToId: true, stage: true, notes: true } });
+  const lead = await (await getDb()).lead.findUnique({ where: { id: leadId }, select: { id: true, assignedToId: true, stage: true, notes: true } });
   if (!lead) throw new NotFound();
   if (!inScope(await visibleUserIds(me), lead.assignedToId)) throw new Forbidden();
   return lead;
@@ -118,13 +118,13 @@ async function assertAssignable(me: User, assigneeId: string | null) {
   }
   const ids = await visibleUserIds(me);
   if (!inScope(ids, assigneeId)) throw new Forbidden("You can't assign leads to that person.");
-  const u = await prisma.user.findUnique({ where: { id: assigneeId }, select: { active: true } });
+  const u = await (await getDb()).user.findUnique({ where: { id: assigneeId }, select: { active: true } });
   if (!u?.active) throw new Invalid("That user isn't active.");
 }
 
 async function assertPool(poolId: string | null | undefined) {
   if (!poolId) return;
-  if (!(await prisma.pool.findUnique({ where: { id: poolId }, select: { id: true } }))) throw new Invalid("That lead pool doesn't exist.");
+  if (!(await (await getDb()).pool.findUnique({ where: { id: poolId }, select: { id: true } }))) throw new Invalid("That lead pool doesn't exist.");
 }
 
 const closedAtFor = (stage: string, current: Date | null) => (stage === "CLOSED_WON" ? current ?? new Date() : null);
@@ -144,10 +144,10 @@ export async function updateLeadAction(leadId: string, patch: LeadPatch) {
     }
     const data = leadData(p);
     if (p.stage !== undefined) {
-      const current = await prisma.lead.findUnique({ where: { id: lid }, select: { closedAt: true } });
+      const current = await (await getDb()).lead.findUnique({ where: { id: lid }, select: { closedAt: true } });
       data.closedAt = closedAtFor(p.stage, current?.closedAt ?? null);
     }
-    await prisma.lead.update({ where: { id: lid }, data });
+    await (await getDb()).lead.update({ where: { id: lid }, data });
     if (p.stage !== undefined && p.stage !== before.stage) await fireTrigger("STAGE_CHANGED", [lid], p.stage);
   });
 }
@@ -165,7 +165,7 @@ export async function createLeadAction(input: { id: string } & z.infer<typeof le
     const assignee = me.role === "SALES" ? me.id : p.assignedToId;
     await assertAssignable(me, assignee);
     await assertPool(p.poolId);
-    await prisma.lead.create({
+    await (await getDb()).lead.create({
       data: {
         ...(leadData({ ...p, assignedToId: assignee }) as Prisma.LeadUncheckedCreateInput),
         id: newId,
@@ -201,7 +201,7 @@ export async function importLeadsAction(
     const parsed = rows.map((r) => ({ id: id.parse(r.id), ...leadFields.parse(r) }));
     for (const a of new Set(parsed.map((r) => r.assignedToId))) await assertAssignable(me, a);
 
-    const result = await prisma.lead.createMany({
+    const result = await (await getDb()).lead.createMany({
       data: parsed.map((r) => ({
         ...(leadData(r) as Prisma.LeadCreateManyInput),
         id: r.id,
@@ -211,15 +211,15 @@ export async function importLeadsAction(
       })),
       skipDuplicates: true,
     });
-    const imp = await prisma.csvImport.create({
+    const imp = await (await getDb()).csvImport.create({
       data: { ...m, successCount: result.count, uploadedById: me.id },
     });
     await audit(me.id, "leads.import", "CsvImport", imp.id, { count: result.count, fileName: m.fileName });
-    const created = await prisma.lead.findMany({ where: { id: { in: parsed.map((r) => r.id) } }, select: { id: true } });
+    const created = await (await getDb()).lead.findMany({ where: { id: { in: parsed.map((r) => r.id) } }, select: { id: true } });
     const createdIds = created.map((l) => l.id);
     const importTags = normalizeTags(z.array(str(40)).max(5).parse(tags));
     if (importTags.length && createdIds.length) {
-      await prisma.lead.updateMany({ where: { id: { in: createdIds } }, data: { tags: importTags } });
+      await (await getDb()).lead.updateMany({ where: { id: { in: createdIds } }, data: { tags: importTags } });
       for (const t of importTags) await fireTrigger("TAG_ADDED", createdIds, t);
     }
     await fireTrigger("LEAD_CREATED", createdIds);
@@ -236,7 +236,7 @@ export async function assignLeadsAction(leadIds: string[], patch: { assignedToId
     if (p.assignedToId !== undefined) await assertAssignable(me, p.assignedToId);
     await assertPool(p.poolId);
     const scope = await visibleUserIds(me);
-    const res = await prisma.lead.updateMany({
+    const res = await (await getDb()).lead.updateMany({
       where: { id: { in: ids }, ...(scope ? { assignedToId: { in: [...scope] } } : {}) },
       data: { ...(p.assignedToId !== undefined ? { assignedToId: p.assignedToId } : {}), ...(p.poolId !== undefined ? { poolId: p.poolId } : {}) },
     });
@@ -273,8 +273,8 @@ export async function logCallAction(input: {
     const now = new Date();
     const nextStage = DISPOSITION_TO_STAGE[c.disposition as keyof typeof DISPOSITION_TO_STAGE];
     const notes = c.notes.trim();
-    await prisma.$transaction([
-      prisma.callLog.create({
+    await (await getDb()).$transaction([
+      (await getDb()).callLog.create({
         data: {
           id: c.id,
           leadId: c.leadId,
@@ -287,7 +287,7 @@ export async function logCallAction(input: {
           notes: notes || null,
         },
       }),
-      prisma.lead.update({
+      (await getDb()).lead.update({
         where: { id: c.leadId },
         data: {
           ...(nextStage ? { stage: nextStage, closedAt: closedAtFor(nextStage, null) } : {}),
@@ -339,9 +339,9 @@ export async function createMeetingAction(input: {
     const lead = await leadInScope(me, m.leadId);
     if (!inScope(await visibleUserIds(me), m.userId)) throw new Forbidden("You can't book meetings for that person.");
     const advance = ["LEAD", "CONTACTED", "INTERESTED", "CALL_ME_LATER", "NO_SHOW"].includes(lead.stage);
-    await prisma.$transaction([
-      prisma.meeting.create({ data: { ...m, scheduledAt: new Date(m.scheduledAt), notes: m.notes || null } }),
-      ...(advance ? [prisma.lead.update({ where: { id: m.leadId }, data: { stage: "MEETING_BOOKED" } })] : []),
+    await (await getDb()).$transaction([
+      (await getDb()).meeting.create({ data: { ...m, scheduledAt: new Date(m.scheduledAt), notes: m.notes || null } }),
+      ...(advance ? [(await getDb()).lead.update({ where: { id: m.leadId }, data: { stage: "MEETING_BOOKED" } })] : []),
     ]);
     if (advance) await fireTrigger("STAGE_CHANGED", [m.leadId], "MEETING_BOOKED");
   });
@@ -352,17 +352,17 @@ export async function updateMeetingAction(meetingId: string, patch: { status?: s
     const me = await requireActionUser();
     const mid = id.parse(meetingId);
     const p = z.object({ status: z.enum(MEETING_STATUSES).optional(), scheduledAt: isoDate.optional(), notes: str(4000).optional() }).parse(patch);
-    const meeting = await prisma.meeting.findUnique({ where: { id: mid }, select: { userId: true, leadId: true } });
+    const meeting = await (await getDb()).meeting.findUnique({ where: { id: mid }, select: { userId: true, leadId: true } });
     if (!meeting) throw new NotFound();
     if (!inScope(await visibleUserIds(me), meeting.userId)) throw new Forbidden();
     const stage = p.status === "SHOWED" ? "SHOWED" : p.status === "NO_SHOW" ? "NO_SHOW" : null;
-    await prisma.$transaction([
-      prisma.meeting.update({
+    await (await getDb()).$transaction([
+      (await getDb()).meeting.update({
         where: { id: mid },
         data: { ...p, ...(p.scheduledAt ? { scheduledAt: new Date(p.scheduledAt) } : {}) },
       }),
       ...(stage
-        ? [prisma.lead.updateMany({ where: { id: meeting.leadId, stage: { not: "CLOSED_WON" } }, data: { stage } })]
+        ? [(await getDb()).lead.updateMany({ where: { id: meeting.leadId, stage: { not: "CLOSED_WON" } }, data: { stage } })]
         : []),
     ]);
     if (stage) await fireTrigger("STAGE_CHANGED", [meeting.leadId], stage);
@@ -399,9 +399,9 @@ export async function createPaymentAction(input: {
     if (!inScope(await visibleUserIds(me), p.userId)) throw new Forbidden();
     // Invoice numbers are assigned on the server so they stay unique and sequential.
     const year = new Date().getFullYear();
-    const count = await prisma.payment.count({ where: { invoiceNo: { startsWith: `INV-${year}-` } } });
+    const count = await (await getDb()).payment.count({ where: { invoiceNo: { startsWith: `INV-${year}-` } } });
     const invoiceNo = `INV-${year}-${String(count + 1).padStart(4, "0")}`;
-    await prisma.payment.create({
+    await (await getDb()).payment.create({
       data: { ...p, invoiceNo, dueDate: new Date(p.dueDate), paidAt: p.paidAt ? new Date(p.paidAt) : null },
     });
     await audit(me.id, "payment.create", "Payment", p.id, { amount: p.amount, status: p.status });
@@ -414,10 +414,10 @@ export async function updatePaymentAction(paymentId: string, patch: { status?: s
     const me = await requireActionUser();
     const pid = id.parse(paymentId);
     const p = z.object({ status: z.enum(["PENDING", "PARTIAL", "PAID", "REFUNDED"]).optional(), paidAt: isoDate.nullable().optional() }).parse(patch);
-    const payment = await prisma.payment.findUnique({ where: { id: pid }, select: { userId: true } });
+    const payment = await (await getDb()).payment.findUnique({ where: { id: pid }, select: { userId: true } });
     if (!payment) throw new NotFound();
     if (!inScope(await visibleUserIds(me), payment.userId)) throw new Forbidden();
-    await prisma.payment.update({
+    await (await getDb()).payment.update({
       where: { id: pid },
       data: { ...(p.status ? { status: p.status } : {}), ...(p.paidAt !== undefined ? { paidAt: p.paidAt ? new Date(p.paidAt) : null } : {}) },
     });
@@ -435,10 +435,10 @@ export async function saveScriptAction(input: { id?: string; title: string; cate
       .object({ id: id.optional(), title: str(160).min(1), category: str(60), body: str(20000).min(1), active: z.boolean() })
       .parse(input);
     const data = { title: s.title.trim(), category: s.category, body: s.body, active: s.active };
-    if (s.id && (await prisma.script.findUnique({ where: { id: s.id }, select: { id: true } }))) {
-      await prisma.script.update({ where: { id: s.id }, data });
+    if (s.id && (await (await getDb()).script.findUnique({ where: { id: s.id }, select: { id: true } }))) {
+      await (await getDb()).script.update({ where: { id: s.id }, data });
     } else {
-      await prisma.script.create({ data: { ...data, ...(s.id ? { id: s.id } : {}), createdById: me.id } });
+      await (await getDb()).script.create({ data: { ...data, ...(s.id ? { id: s.id } : {}), createdById: me.id } });
     }
   });
 }
@@ -467,11 +467,11 @@ export async function saveCustomFieldAction(input: {
       })
       .parse(input);
     const data = { name: f.name.trim(), type: f.type, options: f.options, required: f.required, active: f.active };
-    if (f.id && (await prisma.customFieldDef.findUnique({ where: { id: f.id }, select: { id: true } }))) {
+    if (f.id && (await (await getDb()).customFieldDef.findUnique({ where: { id: f.id }, select: { id: true } }))) {
       // The key is fixed once created — lead data is stored under it.
-      await prisma.customFieldDef.update({ where: { id: f.id }, data });
+      await (await getDb()).customFieldDef.update({ where: { id: f.id }, data });
     } else {
-      await prisma.customFieldDef.create({ data: { ...data, ...(f.id ? { id: f.id } : {}), key: f.key } });
+      await (await getDb()).customFieldDef.create({ data: { ...data, ...(f.id ? { id: f.id } : {}), key: f.key } });
     }
     await audit(me.id, "settings.custom_field", "CustomFieldDef", f.id, { key: f.key });
   });
@@ -484,11 +484,11 @@ export async function savePoolAction(input: { id?: string; name: string; descrip
     if (!permissionsFor(me.role).importLeads) throw new Forbidden();
     const p = z.object({ id: id.optional(), name: str(120).min(1), description: str(1000) }).parse(input);
     const data = { name: p.name.trim(), description: p.description.trim() || null };
-    if (p.id && (await prisma.pool.findUnique({ where: { id: p.id }, select: { id: true } }))) {
+    if (p.id && (await (await getDb()).pool.findUnique({ where: { id: p.id }, select: { id: true } }))) {
       if (!permissionsFor(me.role).admin) throw new Forbidden();
-      await prisma.pool.update({ where: { id: p.id }, data });
+      await (await getDb()).pool.update({ where: { id: p.id }, data });
     } else {
-      await prisma.pool.create({ data: { ...data, ...(p.id ? { id: p.id } : {}) } });
+      await (await getDb()).pool.create({ data: { ...data, ...(p.id ? { id: p.id } : {}) } });
     }
   });
 }
@@ -497,7 +497,7 @@ export async function updateSettingsAction(input: Partial<Settings>) {
   return run("updateSettings", async () => {
     const me = await requireActionUser();
     if (!permissionsFor(me.role).admin) throw new Forbidden();
-    const current = await prisma.setting.findUnique({ where: { key: "settings" } });
+    const current = await (await getDb()).setting.findUnique({ where: { agencyId_key: { agencyId: (await getAgency()).id, key: "settings" } } });
     const merged = normalizeSettings({ ...((current?.value as object) ?? {}), ...input });
     await saveSettingsRow(merged);
     await audit(me.id, "settings.update", "Setting", "settings");
@@ -546,7 +546,7 @@ export async function saveUserAction(input: {
       })
       .parse(input);
     const email = u.email.trim().toLowerCase();
-    const existing = u.id ? await prisma.user.findUnique({ where: { id: u.id } }) : null;
+    const existing = u.id ? await (await getDb()).user.findUnique({ where: { id: u.id } }) : null;
 
     // Only a super admin can create, edit or promote to super admin.
     if (me.role !== "SUPER_ADMIN" && (u.role === "SUPER_ADMIN" || existing?.role === "SUPER_ADMIN")) throw new Forbidden();
@@ -554,14 +554,14 @@ export async function saveUserAction(input: {
     if (existing?.id === me.id && (!u.active || u.role !== me.role)) throw new Invalid("You can't deactivate or change the role of your own account.");
     if (u.reportsToId) {
       if (u.reportsToId === u.id) throw new Invalid("Someone can't report to themselves.");
-      if (!(await prisma.user.findUnique({ where: { id: u.reportsToId }, select: { id: true } }))) throw new Invalid("Unknown manager.");
+      if (!(await (await getDb()).user.findUnique({ where: { id: u.reportsToId }, select: { id: true } }))) throw new Invalid("Unknown manager.");
     }
 
     const base = { name: u.name.trim(), email, role: u.role, title: u.title.trim(), reportsToId: u.reportsToId, active: u.active };
     const pw = u.password ? { passwordHash: await bcrypt.hash(u.password, BCRYPT_ROUNDS), passwordChangedAt: new Date(), failedLogins: 0, lockedUntil: null } : {};
 
     if (existing) {
-      await prisma.user.update({ where: { id: existing.id }, data: { ...base, ...pw } });
+      await (await getDb()).user.update({ where: { id: existing.id }, data: { ...base, ...pw } });
       await audit(me.id, "user.update", "User", existing.id, {
         roleFrom: existing.role,
         roleTo: u.role,
@@ -570,7 +570,7 @@ export async function saveUserAction(input: {
       });
     } else {
       if (!u.password) throw new Invalid(`Set a temporary password of at least ${MIN_PASSWORD_LENGTH} characters.`);
-      const created = await prisma.user.create({ data: { ...base, ...(pw as { passwordHash: string }), ...(u.id ? { id: u.id } : {}) } });
+      const created = await (await getDb()).user.create({ data: { ...base, ...(pw as { passwordHash: string }), ...(u.id ? { id: u.id } : {}) } });
       await audit(me.id, "user.create", "User", created.id, { role: u.role });
     }
   });
@@ -580,10 +580,10 @@ export async function changeOwnPasswordAction(currentPassword: string, newPasswo
   return run("changePassword", async () => {
     const me = await requireActionUser();
     const p = z.object({ current: z.string().min(1).max(200), next: z.string().min(MIN_PASSWORD_LENGTH).max(200) }).parse({ current: currentPassword, next: newPassword });
-    const user = await prisma.user.findUnique({ where: { id: me.id } });
+    const user = await (await getDb()).user.findUnique({ where: { id: me.id } });
     if (!user || !(await bcrypt.compare(p.current, user.passwordHash))) throw new Invalid("Your current password isn't right.");
     if (p.current === p.next) throw new Invalid("Choose a password different from your current one.");
-    await prisma.user.update({ where: { id: me.id }, data: { passwordHash: await bcrypt.hash(p.next, BCRYPT_ROUNDS), passwordChangedAt: new Date() } });
+    await (await getDb()).user.update({ where: { id: me.id }, data: { passwordHash: await bcrypt.hash(p.next, BCRYPT_ROUNDS), passwordChangedAt: new Date() } });
     await audit(me.id, "user.password_change", "User", me.id);
   });
 }
@@ -593,9 +593,9 @@ export async function changeOwnPasswordAction(currentPassword: string, newPasswo
 export async function clockInAction() {
   return run("clockIn", async () => {
     const me = await requireActionUser();
-    const open = await prisma.timeLog.findFirst({ where: { userId: me.id, clockOut: null } });
+    const open = await (await getDb()).timeLog.findFirst({ where: { userId: me.id, clockOut: null } });
     if (open) return { id: open.id, clockIn: open.clockIn.toISOString() };
-    const t = await prisma.timeLog.create({ data: { userId: me.id } });
+    const t = await (await getDb()).timeLog.create({ data: { userId: me.id } });
     return { id: t.id, clockIn: t.clockIn.toISOString() };
   });
 }
@@ -603,11 +603,12 @@ export async function clockInAction() {
 export async function clockOutAction() {
   return run("clockOut", async () => {
     const me = await requireActionUser();
-    const open = await prisma.timeLog.findMany({ where: { userId: me.id, clockOut: null } });
+    const open = await (await getDb()).timeLog.findMany({ where: { userId: me.id, clockOut: null } });
     const now = new Date();
-    await prisma.$transaction(
+    const db = await getDb();
+    await db.$transaction(
       open.map((t) =>
-        prisma.timeLog.update({
+        db.timeLog.update({
           where: { id: t.id },
           data: { clockOut: now, durationSec: Math.round((now.getTime() - t.clockIn.getTime()) / 1000) },
         })
@@ -627,8 +628,8 @@ export async function deleteLeadsAction(leadIds: string[]) {
     const me = await requireActionUser();
     if (!permissionsFor(me.role).deleteLeads) throw new Forbidden("Only managers can delete leads.");
     const ids = z.array(id).min(1).max(5000).parse(leadIds);
-    const doomed = await prisma.lead.findMany({ where: { id: { in: ids } }, select: { id: true, businessName: true } });
-    const res = await prisma.lead.deleteMany({ where: { id: { in: doomed.map((l) => l.id) } } });
+    const doomed = await (await getDb()).lead.findMany({ where: { id: { in: ids } }, select: { id: true, businessName: true } });
+    const res = await (await getDb()).lead.deleteMany({ where: { id: { in: doomed.map((l) => l.id) } } });
     await audit(me.id, "leads.delete", "Lead", doomed.length === 1 ? doomed[0].id : undefined, {
       count: res.count,
       names: doomed.slice(0, 25).map((l) => l.businessName),

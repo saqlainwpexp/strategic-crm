@@ -5,6 +5,7 @@ declare module "next-auth" {
   interface Session {
     user: {
       id: string;
+      agencyId?: string;
       /** passwordChangedAt (ms) when the session was issued — a mismatch means "signed out". */
       pv: number;
       name?: string | null;
@@ -17,6 +18,7 @@ declare module "next-auth" {
 declare module "next-auth/jwt" {
   interface JWT {
     uid?: string;
+    agencyId?: string;
     pv?: number;
   }
 }

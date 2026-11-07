@@ -4,7 +4,7 @@
 import { ImapFlow } from "imapflow";
 import { simpleParser, type ParsedMail } from "mailparser";
 import { Prisma, type EmailAccount } from "@prisma/client";
-import { prisma } from "../db";
+import { getDb } from "../db";
 import { decryptSecret } from "./crypto";
 import { friendlyMailError } from "./mailer";
 import { fireTrigger } from "./triggers";
@@ -41,7 +41,7 @@ export async function testImap(acc: EmailAccount): Promise<string | null> {
 }
 
 export async function syncAllInboxes() {
-  const accounts = await prisma.emailAccount.findMany({ where: { imapEnabled: true, status: "CONNECTED" } });
+  const accounts = await (await getDb()).emailAccount.findMany({ where: { imapEnabled: true, status: "CONNECTED" } });
   let added = 0;
   for (const acc of accounts) {
     try {
@@ -74,7 +74,7 @@ export async function syncAccount(acc: EmailAccount): Promise<number> {
       const uidNext = Number(box.uidNext ?? 1);
       if (lastUid === 0) lastUid = Math.max(0, uidNext - 1 - FIRST_SYNC_MESSAGES);
       if (uidNext - 1 <= lastUid) {
-        await prisma.emailAccount.update({ where: { id: acc.id }, data: { lastSyncAt: new Date(), uidValidity: validity, lastUid } });
+        await (await getDb()).emailAccount.update({ where: { id: acc.id }, data: { lastSyncAt: new Date(), uidValidity: validity, lastUid } });
         return 0;
       }
 
@@ -90,7 +90,7 @@ export async function syncAccount(acc: EmailAccount): Promise<number> {
           console.error(`[email] couldn't read message ${msg.uid} for ${acc.email}`, e);
         }
       }
-      await prisma.emailAccount.update({ where: { id: acc.id }, data: { lastSyncAt: new Date(), uidValidity: validity, lastUid: maxUid } });
+      await (await getDb()).emailAccount.update({ where: { id: acc.id }, data: { lastSyncAt: new Date(), uidValidity: validity, lastUid: maxUid } });
     } finally {
       lock.release();
     }
@@ -115,32 +115,32 @@ async function storeMessage(acc: EmailAccount, m: ParsedMail, fallbackId: string
   }
 
   const send = refs.length
-    ? await prisma.emailSend.findFirst({ where: { messageId: { in: refs.map((r) => `<${r}>`) } }, select: { id: true, leadId: true, repliedAt: true } })
+    ? await (await getDb()).emailSend.findFirst({ where: { messageId: { in: refs.map((r) => `<${r}>`) } }, select: { id: true, leadId: true, repliedAt: true } })
     : null;
   const autoReply = /^(auto|out of office|automatic reply|abwesend)/i.test(subject) || (m.headers.get("auto-submitted") ?? "no") !== "no";
   if (send && !send.repliedAt && !autoReply) {
-    await prisma.emailSend.update({ where: { id: send.id }, data: { repliedAt: m.date ?? new Date() } });
+    await (await getDb()).emailSend.update({ where: { id: send.id }, data: { repliedAt: m.date ?? new Date() } });
   }
 
   const leadId =
     send?.leadId ??
-    (await prisma.lead.findFirst({ where: { email: fromEmail }, select: { id: true } }))?.id ??
+    (await (await getDb()).lead.findFirst({ where: { email: fromEmail }, select: { id: true } }))?.id ??
     null;
 
   const sentAt = m.date ?? new Date();
   const subj = baseSubject(subject).slice(0, 490);
-  let thread = await prisma.inboxThread.findFirst({
+  let thread = await (await getDb()).inboxThread.findFirst({
     where: { accountId: acc.id, contactEmail: fromEmail, subject: subj },
     orderBy: { lastMessageAt: "desc" },
   });
   if (!thread) {
-    thread = await prisma.inboxThread.create({
+    thread = await (await getDb()).inboxThread.create({
       data: { accountId: acc.id, leadId, subject: subj, contactEmail: fromEmail, contactName: from?.name ?? "", lastMessageAt: sentAt },
     });
   }
 
   try {
-    await prisma.inboxMessage.create({
+    await (await getDb()).inboxMessage.create({
       data: {
         threadId: thread.id,
         accountId: acc.id,
@@ -160,7 +160,7 @@ async function storeMessage(acc: EmailAccount, m: ParsedMail, fallbackId: string
     if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") return false; // already imported
     throw e;
   }
-  await prisma.inboxThread.update({
+  await (await getDb()).inboxThread.update({
     where: { id: thread.id },
     data: { unread: true, archived: false, lastMessageAt: sentAt > thread.lastMessageAt ? sentAt : thread.lastMessageAt, leadId: thread.leadId ?? leadId },
   });
@@ -173,12 +173,12 @@ async function markBounce(text: string, refs: string[]) {
   // Prefer the original Message-ID (quoted in most bounce reports); fall back to the failed address.
   const ids = new Set(refs.map((r) => `<${r}>`));
   for (const mid of text.match(/<[^<>\s]+@[^<>\s]+>/g) ?? []) ids.add(mid);
-  let send = ids.size ? await prisma.emailSend.findFirst({ where: { messageId: { in: [...ids] } } }) : null;
+  let send = ids.size ? await (await getDb()).emailSend.findFirst({ where: { messageId: { in: [...ids] } } }) : null;
   if (!send) {
     const failed = text.match(/final-recipient:\s*rfc822;\s*([^\s<>]+@[^\s<>]+)/i)?.[1] ?? text.match(/<([^<>\s]+@[^<>\s]+)>:?\s*\n?.*(does not exist|unknown|rejected|not found)/i)?.[1];
-    if (failed) send = await prisma.emailSend.findFirst({ where: { email: failed.toLowerCase(), status: "SENT" }, orderBy: { sentAt: "desc" } });
+    if (failed) send = await (await getDb()).emailSend.findFirst({ where: { email: failed.toLowerCase(), status: "SENT" }, orderBy: { sentAt: "desc" } });
   }
   if (!send) return;
-  await prisma.emailSend.update({ where: { id: send.id }, data: { bouncedAt: now } });
-  if (send.leadId) await prisma.lead.update({ where: { id: send.leadId }, data: { emailBouncedAt: now } }).catch(() => {});
+  await (await getDb()).emailSend.update({ where: { id: send.id }, data: { bouncedAt: now } });
+  if (send.leadId) await (await getDb()).lead.update({ where: { id: send.leadId }, data: { emailBouncedAt: now } }).catch(() => {});
 }

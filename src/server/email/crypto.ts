@@ -2,6 +2,7 @@
 // nobody can forge opens/clicks or turn the click redirect into an open redirect.
 
 import crypto from "crypto";
+import { publicUrl } from "../agencies";
 
 let warned = false;
 
@@ -40,12 +41,13 @@ export function decryptSecret(enc: string): string {
   }
 }
 
-export function sign(value: string, len = 22): string {
+export function sign(value: string, len = 22, agencyId = "default"): string {
+  if (agencyId !== "default") value = JSON.stringify([agencyId, value]);
   return crypto.createHmac("sha256", derive("tracking")).update(value).digest("base64url").slice(0, len);
 }
 
-export function verify(value: string, sig: string, len = 22): boolean {
-  const expected = sign(value, len);
+export function verify(value: string, sig: string, len = 22, agencyId = "default"): boolean {
+  const expected = sign(value, len, agencyId);
   return sig.length === expected.length && crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected));
 }
 
@@ -54,6 +56,6 @@ export function randomToken(bytes = 18) {
 }
 
 /** Public base URL used in links inside emails (tracking, unsubscribe). */
-export function appUrl(): string {
-  return (process.env.APP_URL || process.env.NEXTAUTH_URL || "http://localhost:3000").replace(/\/+$/, "");
+export async function appUrl(): Promise<string> {
+  return publicUrl();
 }

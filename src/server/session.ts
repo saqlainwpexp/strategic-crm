@@ -4,7 +4,7 @@ import { cache } from "react";
 import { redirect } from "next/navigation";
 import { getServerSession } from "next-auth";
 import { authOptions } from "./auth";
-import { prisma } from "./db";
+import { getDb, getAgency } from "./db";
 import { toUser } from "./mappers";
 import type { User } from "@/lib/types";
 
@@ -16,7 +16,8 @@ export const getCurrentUser = cache(async (): Promise<User | null> => {
   const session = await getServerSession(authOptions);
   const id = session?.user?.id;
   if (!id) return null;
-  const user = await prisma.user.findUnique({ where: { id } });
+  try { if ((session.user.agencyId ?? "default") !== (await getAgency()).id) return null; } catch { return null; }
+  const user = await (await getDb()).user.findUnique({ where: { id } });
   if (!user || !user.active) return null;
   // Password changed since this session was issued → treat as signed out.
   if ((user.passwordChangedAt?.getTime() ?? 0) !== (session.user.pv ?? 0)) return null;
@@ -43,7 +44,7 @@ export async function requireActionUser(): Promise<User> {
 export async function visibleUserIds(viewer: User): Promise<Set<string> | null> {
   if (viewer.role === "SALES") return new Set([viewer.id]);
   if (viewer.role === "BD") {
-    const reports = await prisma.user.findMany({ where: { reportsToId: viewer.id }, select: { id: true } });
+    const reports = await (await getDb()).user.findMany({ where: { reportsToId: viewer.id }, select: { id: true } });
     return new Set([viewer.id, ...reports.map((r) => r.id)]);
   }
   return null;

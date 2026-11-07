@@ -18,6 +18,7 @@ import { UserChip } from "@/components/ui/Avatar";
 import { LeadDrawer } from "./LeadDrawer";
 import { LeadForm } from "./LeadForm";
 import { CsvImportModal } from "./CsvImportModal";
+import { SocialImportModal } from "@/components/outreach/SocialImportModal";
 import {
   AGENCY_SERVICES,
   OPEN_STAGES,
@@ -57,6 +58,7 @@ export function LeadsView() {
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<Lead | null>(null);
   const [importOpen, setImportOpen] = useState(false);
+  const [socialImportOpen, setSocialImportOpen] = useState(false);
   const [statsOpen, toggleStats] = useRememberedToggle("scrm_stats_leads");
 
   const openId = params.get("lead");
@@ -207,6 +209,11 @@ export function LeadsView() {
             {perms.importLeads && (
               <Button variant="secondary" size="lg" onClick={() => setImportOpen(true)}>
                 <Upload className="h-4 w-4" /> Import CSV
+              </Button>
+            )}
+            {(perms.importLeads || viewer.role === "BD") && (
+              <Button variant="secondary" size="lg" onClick={() => setSocialImportOpen(true)}>
+                <Upload className="h-4 w-4" /> Import social CSV
               </Button>
             )}
             <Button
@@ -565,6 +572,7 @@ export function LeadsView() {
       />
       <LeadForm open={formOpen} onClose={() => setFormOpen(false)} lead={editing} />
       {dialog}
+      <SocialImportModal open={socialImportOpen} onClose={() => setSocialImportOpen(false)} />
       {perms.importLeads && (
         <CsvImportModal
           open={importOpen}

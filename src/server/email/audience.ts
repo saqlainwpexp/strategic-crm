@@ -1,7 +1,7 @@
 // Turns a campaign's AudienceFilter into the list of leads that will receive it.
 
 import { Prisma } from "@prisma/client";
-import { prisma } from "../db";
+import { getDb } from "../db";
 import { getSettings } from "../settings";
 import type { AudienceFilter } from "@/lib/email";
 import type { PipelineStage } from "@/lib/constants";
@@ -44,7 +44,7 @@ export async function audienceWhere(a: AudienceFilter): Promise<Prisma.LeadWhere
 
 /** Matching leads, one per email address (the first one wins). */
 export async function resolveAudience(a: AudienceFilter) {
-  const leads = await prisma.lead.findMany({
+  const leads = await (await getDb()).lead.findMany({
     where: await audienceWhere(a),
     select: { id: true, email: true },
     orderBy: { createdAt: "asc" },

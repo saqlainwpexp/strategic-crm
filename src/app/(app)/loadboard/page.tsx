@@ -1,5 +1,10 @@
-import { LoadboardView } from "@/components/loadboard/LoadboardView";
+import { Suspense } from "react";
+import { LoadboardTabs } from "@/components/outreach/LoadboardTabs";
 
 export default function LoadboardPage() {
-  return <LoadboardView />;
+  return (
+    <Suspense>
+      <LoadboardTabs />
+    </Suspense>
+  );
 }

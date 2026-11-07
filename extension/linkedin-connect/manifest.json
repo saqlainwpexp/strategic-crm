@@ -1,0 +1,10 @@
+{
+  "manifest_version": 3,
+  "name": "Strategic CRM – LinkedIn Connect",
+  "version": "1.0.0",
+  "description": "Sends your LinkedIn session to your local Strategic CRM so its LinkedIn automation can act as you.",
+  "permissions": ["cookies", "storage"],
+  "host_permissions": ["https://*.linkedin.com/*", "http://localhost:3000/*"],
+  "background": { "service_worker": "background.js" },
+  "action": { "default_popup": "popup.html", "default_title": "Strategic CRM – LinkedIn" }
+}

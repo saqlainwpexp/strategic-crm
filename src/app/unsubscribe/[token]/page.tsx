@@ -3,9 +3,9 @@
 
 import { revalidatePath } from "next/cache";
 import { CheckCircle2, MailX } from "lucide-react";
-import { prisma } from "@/server/db";
+import { getDb, withAgency } from "@/server/db";
 import { getBranding } from "@/server/settings";
-import { readUnsubscribeToken } from "@/server/email/tokens";
+import { readUnsubscribeToken, emailAgencyId } from "@/server/email/tokens";
 import { unsubscribeLead } from "@/server/email/unsubscribe";
 import { Logo } from "@/components/layout/Logo";
 
@@ -19,14 +19,17 @@ function mask(email: string) {
 
 export default async function UnsubscribePage({ params }: { params: Promise<{ token: string }> }) {
   const { token } = await params;
-  const leadId = readUnsubscribeToken(token);
-  const lead = leadId ? await prisma.lead.findUnique({ where: { id: leadId }, select: { email: true, emailOptOut: true } }) : null;
+  return withAgency(emailAgencyId(token), async () => {
+  const leadId = await readUnsubscribeToken(token);
+  const lead = leadId ? await (await getDb()).lead.findUnique({ where: { id: leadId }, select: { email: true, emailOptOut: true } }) : null;
   const branding = await getBranding();
 
   async function confirm() {
     "use server";
-    const id = readUnsubscribeToken(token);
-    if (id) await unsubscribeLead(id);
+    await withAgency(emailAgencyId(token), async () => {
+      const id = await readUnsubscribeToken(token);
+      if (id) await unsubscribeLead(id);
+    });
     revalidatePath(`/unsubscribe/${token}`);
   }
 
@@ -71,4 +74,5 @@ export default async function UnsubscribePage({ params }: { params: Promise<{ to
       </div>
     </main>
   );
+  });
 }

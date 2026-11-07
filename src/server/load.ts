@@ -1,6 +1,6 @@
 // Loads everything the signed-in user may see, scoped by role on the server.
 
-import { prisma } from "./db";
+import { getDb } from "./db";
 import { visibleUserIds } from "./session";
 import { getSettings } from "./settings";
 import { toCall, toField, toImport, toLead, toMeeting, toPayment, toPool, toScript, toTimeLog, toUser } from "./mappers";
@@ -19,24 +19,24 @@ export async function loadCrmData(viewer: User): Promise<{ data: CrmData; allUse
   const manager = viewer.role === "MANAGER" || viewer.role === "SUPER_ADMIN";
 
   const [users, leads, scripts, customFields, pools, settings] = await Promise.all([
-    prisma.user.findMany({ orderBy: { name: "asc" } }),
-    prisma.lead.findMany({ where: ids ? { assignedToId: mine } : {}, orderBy: { leadScore: "desc" } }),
-    prisma.script.findMany({ orderBy: { createdAt: "asc" } }),
-    prisma.customFieldDef.findMany({ orderBy: [{ order: "asc" }, { createdAt: "asc" }] }),
-    prisma.pool.findMany({ orderBy: { name: "asc" } }),
+    (await getDb()).user.findMany({ orderBy: { name: "asc" } }),
+    (await getDb()).lead.findMany({ where: ids ? { assignedToId: mine } : {}, orderBy: { leadScore: "desc" } }),
+    (await getDb()).script.findMany({ orderBy: { createdAt: "asc" } }),
+    (await getDb()).customFieldDef.findMany({ orderBy: [{ order: "asc" }, { createdAt: "asc" }] }),
+    (await getDb()).pool.findMany({ orderBy: { name: "asc" } }),
     getSettings(),
   ]);
   const leadIds = ids ? leads.map((l) => l.id) : undefined;
 
   const [calls, meetings, payments, timeLogs, imports] = await Promise.all([
-    prisma.callLog.findMany({
+    (await getDb()).callLog.findMany({
       where: { startedAt: { gte: since }, ...(ids ? { userId: mine, leadId: { in: leadIds } } : {}) },
       orderBy: { startedAt: "asc" },
     }),
-    prisma.meeting.findMany({ where: { scheduledAt: { gte: meetingsSince }, ...(ids ? { userId: mine } : {}) }, orderBy: { scheduledAt: "asc" } }),
-    prisma.payment.findMany({ where: ids ? { userId: mine } : {}, orderBy: { createdAt: "asc" } }),
-    prisma.timeLog.findMany({ where: { clockIn: { gte: since }, ...(ids ? { userId: mine } : {}) }, orderBy: { clockIn: "asc" } }),
-    manager ? prisma.csvImport.findMany({ orderBy: { createdAt: "desc" }, take: 50 }) : Promise.resolve([]),
+    (await getDb()).meeting.findMany({ where: { scheduledAt: { gte: meetingsSince }, ...(ids ? { userId: mine } : {}) }, orderBy: { scheduledAt: "asc" } }),
+    (await getDb()).payment.findMany({ where: ids ? { userId: mine } : {}, orderBy: { createdAt: "asc" } }),
+    (await getDb()).timeLog.findMany({ where: { clockIn: { gte: since }, ...(ids ? { userId: mine } : {}) }, orderBy: { clockIn: "asc" } }),
+    manager ? (await getDb()).csvImport.findMany({ orderBy: { createdAt: "desc" }, take: 50 }) : Promise.resolve([]),
   ]);
 
   const all = users.map(toUser);

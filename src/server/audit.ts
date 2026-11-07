@@ -1,5 +1,5 @@
 import type { Prisma } from "@prisma/client";
-import { prisma } from "./db";
+import { getDb } from "./db";
 
 /** Record a security-relevant event. Never throws — auditing must not break the request. */
 export async function audit(
@@ -10,7 +10,7 @@ export async function audit(
   meta?: Prisma.InputJsonValue
 ) {
   try {
-    await prisma.auditLog.create({ data: { userId, action, entityType, entityId, meta } });
+    await (await getDb()).auditLog.create({ data: { userId, action, entityType, entityId, meta } });
   } catch (e) {
     console.error("[audit] failed to write", action, e);
   }

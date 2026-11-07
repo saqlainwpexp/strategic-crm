@@ -7,6 +7,9 @@ import { getBranding } from "@/server/settings";
 import { setTimeZone } from "@/lib/date";
 import { permissionsFor } from "@/lib/access";
 import { unreadThreadCount } from "@/server/email/load";
+import { loadOutreachData } from "@/server/outreach/service";
+import { OutreachProvider } from "@/components/providers/OutreachProvider";
+import { SocialReminders } from "@/components/outreach/SocialReminders";
 
 // Per-user, per-request data.
 export const dynamic = "force-dynamic";
@@ -14,18 +17,22 @@ export const dynamic = "force-dynamic";
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const viewer = await requirePageUser();
   setTimeZone((await getBranding()).timezone);
-  const [{ data, allUsers }, unreadReplies] = await Promise.all([
+  const [{ data, allUsers }, unreadReplies, outreach] = await Promise.all([
     loadCrmData(viewer),
     permissionsFor(viewer.role).emailMarketing ? unreadThreadCount() : Promise.resolve(0),
+    loadOutreachData(viewer),
   ]);
 
   return (
     <CrmProvider key={viewer.id} initial={data} viewer={viewer} allUsers={allUsers}>
+      <OutreachProvider initial={outreach}>
       <div className="min-h-screen bg-page text-ink">
         <TopNav unreadReplies={unreadReplies} />
         <main className="mx-auto max-w-[1440px] px-6 pb-16 lg:px-10">{children}</main>
       </div>
       <ReminderCenter />
+      <SocialReminders />
+      </OutreachProvider>
     </CrmProvider>
   );
 }

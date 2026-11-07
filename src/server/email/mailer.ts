@@ -1,18 +1,20 @@
 // SMTP transport + building the final email (merge tags, tracking, unsubscribe, signature).
 
+import { getAgency } from "../db";
 import nodemailer, { type Transporter } from "nodemailer";
 import type { EmailAccount, Lead } from "@prisma/client";
 import { fillMergeTags, htmlToText, type MergeData } from "@/lib/email";
 import { appUrl, decryptSecret, sign } from "./crypto";
-import { unsubscribeToken } from "./tokens";
+import { unsubscribeToken, emailReference } from "./tokens";
 
 // ─── Transport ───────────────────────────────────────────────
 
 const transports = new Map<string, { version: number; t: Transporter }>();
 
-export function transportFor(acc: EmailAccount): Transporter {
+export async function transportFor(acc: EmailAccount): Promise<Transporter> {
+  const key = (await getAgency()).id + ":" + acc.id;
   const version = acc.updatedAt.getTime();
-  const hit = transports.get(acc.id);
+  const hit = transports.get(key);
   if (hit && hit.version === version) return hit.t;
   hit?.t.close();
   const t = nodemailer.createTransport({
@@ -26,11 +28,12 @@ export function transportFor(acc: EmailAccount): Transporter {
     greetingTimeout: 15_000,
     socketTimeout: 30_000,
   });
-  transports.set(acc.id, { version, t });
+  transports.set(key, { version, t });
   return t;
 }
 
-export function forgetTransport(accountId: string) {
+export async function forgetTransport(accountId: string) {
+  accountId = (await getAgency()).id + ":" + accountId;
   transports.get(accountId)?.t.close();
   transports.delete(accountId);
 }
@@ -82,19 +85,21 @@ export type BuiltEmail = {
   headers: Record<string, string>;
 };
 
-function trackLinks(html: string, sendId: string, skip: string) {
+function trackLinks(html: string, sendId: string, skip: string, baseUrl: string, agencyId: string) {
   return html.replace(/<a\b([^>]*?)href=(["'])(.*?)\2([^>]*)>/gi, (match, pre: string, q: string, raw: string, post: string) => {
     const url = raw.replace(/&amp;/g, "&");
     if (!/^https?:\/\//i.test(url) || url === skip) return match;
-    const tracked = `${appUrl()}/api/e/c/${sendId}?u=${encodeURIComponent(url)}&s=${sign(`c:${sendId}:${url}`)}`;
+    const tracked = `${baseUrl}/api/e/c/${emailReference(sendId, agencyId)}?u=${encodeURIComponent(url)}&s=${sign(`c:${sendId}:${url}`, 22, agencyId)}`;
     return `<a${pre}href=${q}${tracked.replace(/&/g, "&amp;")}${q}${post}>`;
   });
 }
 
-export function buildEmail(acc: EmailAccount, lead: Pick<Lead, "id" | "email" | "decisionMakerName" | "businessName" | "city" | "website" | "service">, o: BuildOptions): BuiltEmail {
+export async function buildEmail(acc: EmailAccount, lead: Pick<Lead, "id" | "email" | "decisionMakerName" | "businessName" | "city" | "website" | "service">, o: BuildOptions): Promise<BuiltEmail> {
+  const baseUrl = await appUrl();
   const to = (lead.email ?? "").trim();
-  const token = unsubscribeToken(lead.id);
-  const unsubscribeUrl = `${appUrl()}/unsubscribe/${token}`;
+  const token = await unsubscribeToken(lead.id);
+  const agencyId = (await getAgency()).id;
+  const unsubscribeUrl = `${baseUrl}/unsubscribe/${token}`;
   const senderName = o.fromName?.trim() || acc.fromName || acc.name;
   const merge: MergeData = {
     decisionMakerName: lead.decisionMakerName ?? "",
@@ -113,12 +118,12 @@ export function buildEmail(acc: EmailAccount, lead: Pick<Lead, "id" | "email" | 
   if (o.addUnsubscribe && !body.includes(unsubscribeUrl)) {
     body += `<p style="margin-top:32px;font-size:12px;color:#8a8a8a">Don't want these emails? <a href="${unsubscribeUrl}" style="color:#8a8a8a">Unsubscribe</a></p>`;
   }
-  if (o.trackClicks) body = trackLinks(body, o.sendId, unsubscribeUrl);
+  if (o.trackClicks) body = trackLinks(body, o.sendId, unsubscribeUrl, baseUrl, agencyId);
   const preheader = o.previewText?.trim()
     ? `<div style="display:none;max-height:0;overflow:hidden;opacity:0">${fillMergeTags(o.previewText, merge, true)}</div>`
     : "";
   const pixel = o.trackOpens
-    ? `<img src="${appUrl()}/api/e/o/${o.sendId}.${sign(`o:${o.sendId}`)}.gif" width="1" height="1" alt="" style="display:block;border:0;width:1px;height:1px" />`
+    ? `<img src="${baseUrl}/api/e/o/${emailReference(o.sendId, agencyId)}.${sign(`o:${o.sendId}`, 22, agencyId)}.gif" width="1" height="1" alt="" style="display:block;border:0;width:1px;height:1px" />`
     : "";
 
   const html = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head><body style="margin:0;padding:0;background:#ffffff">${preheader}<div style="font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif;font-size:15px;line-height:1.6;color:#111111;max-width:640px;padding:8px 4px">${body}</div>${pixel}</body></html>`;
@@ -126,7 +131,7 @@ export function buildEmail(acc: EmailAccount, lead: Pick<Lead, "id" | "email" | 
   const domain = acc.email.split("@")[1] || "localhost";
   const headers: Record<string, string> = {};
   if (o.addUnsubscribe) {
-    headers["List-Unsubscribe"] = `<${appUrl()}/api/e/u/${token}>, <mailto:${acc.email}?subject=unsubscribe>`;
+    headers["List-Unsubscribe"] = `<${baseUrl}/api/e/u/${token}>, <mailto:${acc.email}?subject=unsubscribe>`;
     headers["List-Unsubscribe-Post"] = "List-Unsubscribe=One-Click";
   }
 
@@ -143,7 +148,7 @@ export function buildEmail(acc: EmailAccount, lead: Pick<Lead, "id" | "email" | 
 }
 
 export async function deliver(acc: EmailAccount, m: BuiltEmail) {
-  const info = await transportFor(acc).sendMail({
+  const info = await (await transportFor(acc)).sendMail({
     from: m.from,
     to: m.to,
     replyTo: m.replyTo,
