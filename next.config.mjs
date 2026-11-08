@@ -24,6 +24,10 @@ const nextConfig = {
   experimental: {
     // CSV imports of a few thousand leads go through a server action.
     serverActions: { bodySizeLimit: "4mb" },
+    // Hostinger shared hosting caps processes per account; parallel build workers hit
+    // "spawn EAGAIN" during page-data collection. Build with one worker.
+    cpus: 1,
+    workerThreads: false,
   },
   async headers() {
     return [{ source: "/:path*", headers: securityHeaders }];
