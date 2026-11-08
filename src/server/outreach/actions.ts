@@ -263,6 +263,22 @@ export async function createAgentTokenAction(input: { name: string; userId: stri
   });
 }
 
+export async function listOAuthGrantsAction() {
+  return run("listOAuthGrants", async (me) => (await import("./oauth")).listOAuthGrants(me));
+}
+
+export async function revokeOAuthGrantAction(grantId: string) {
+  return run("revokeOAuthGrant", async (me) => {
+    const { revokeOAuthGrant } = await import("./oauth");
+    try {
+      await revokeOAuthGrant(me, z.string().regex(/^[a-f0-9]{12}$/).parse(grantId));
+    } catch (e) {
+      if (e instanceof z.ZodError) throw e;
+      throw new svc.OutreachError(e instanceof Error ? e.message : "Couldn't disconnect that app.");
+    }
+  });
+}
+
 export async function revokeAgentTokenAction(tokenId: string) {
   return run("revokeAgentToken", async (me) => {
     const { revokeAgentToken } = await import("./agent-tokens");

@@ -18,6 +18,7 @@
     "agency": "tsx --env-file=.env scripts/agency.ts",
     "test:agencies": "tsx --test tests/agencies.test.ts",
     "test:outreach": "tsx --test tests/outreach-rules.test.ts",
+    "test:oauth": "tsx --test tests/mcp-oauth.test.ts",
     "test:log": "tsx --test tests/outreach-log-rules.test.ts"
   },
   "prisma": {

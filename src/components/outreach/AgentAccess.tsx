@@ -10,7 +10,8 @@ import { useOutreach } from "@/components/providers/OutreachProvider";
 import { Card, CardHeader } from "@/components/ui/Card";
 import { Button, IconButton } from "@/components/ui/Button";
 import { Field, Input, Select } from "@/components/ui/Form";
-import { createAgentTokenAction, listAgentTokensAction, revokeAgentTokenAction } from "@/server/outreach/actions";
+import { createAgentTokenAction, listAgentTokensAction, listOAuthGrantsAction, revokeAgentTokenAction, revokeOAuthGrantAction } from "@/server/outreach/actions";
+import type { OAuthGrantInfo } from "@/server/outreach/oauth";
 import type { AgentTokenInfo } from "@/server/outreach/agent-tokens";
 import { formatDateTime } from "@/lib/date";
 
@@ -18,6 +19,7 @@ export function AgentAccess() {
   const { data: crm, viewer, notify } = useCrm();
   const { act } = useOutreach();
   const [tokens, setTokens] = useState<AgentTokenInfo[] | null>(null);
+  const [grants, setGrants] = useState<OAuthGrantInfo[] | null>(null);
   const [name, setName] = useState("Outreach agent");
   const [userId, setUserId] = useState(viewer.id);
   const [fresh, setFresh] = useState<string | null>(null);
@@ -26,6 +28,8 @@ export function AgentAccess() {
   const load = useCallback(async () => {
     const r = await listAgentTokensAction();
     if (r.ok) setTokens(r.data);
+    const g = await listOAuthGrantsAction();
+    if (g.ok) setGrants(g.data);
   }, []);
   useEffect(() => {
     setOrigin(window.location.origin);
@@ -42,6 +46,11 @@ export function AgentAccess() {
   const revoke = async (t: AgentTokenInfo) => {
     if (!window.confirm(`Revoke "${t.name}"? Any agent using it stops logging immediately.`)) return;
     const r = await act(revokeAgentTokenAction(t.id), "Token revoked");
+    if (r.ok) load();
+  };
+  const disconnect = async (g: OAuthGrantInfo) => {
+    if (!window.confirm(`Disconnect "${g.clientName}"? It loses access immediately.`)) return;
+    const r = await act(revokeOAuthGrantAction(g.id), "App disconnected");
     if (r.ok) load();
   };
   const copy = (text: string, what: string) =>
@@ -98,6 +107,7 @@ export function AgentAccess() {
       <div className="mt-8">
         <h3 className="text-[15px] font-medium">Connect your agent</h3>
         <div className="mt-4 flex flex-col gap-5">
+          <Snippet label="Apps that support OAuth (paste this URL, then approve in the browser; no token needed)" text={url} onCopy={copy} />
           <Snippet label="Claude Code (run once in a terminal)" text={cliCmd} onCopy={copy} />
           <Snippet label="Claude Desktop / Cursor / any MCP client (JSON config)" text={jsonCfg} onCopy={copy} />
           <Snippet label="Add to your agent's instructions" text={prompt} onCopy={copy} />
@@ -133,6 +143,42 @@ export function AgentAccess() {
                   <td className="py-3 text-neutral-500">{t.lastUsedAt ? formatDateTime(t.lastUsedAt) : "Never"}</td>
                   <td className="py-3 text-right">
                     <IconButton label="Revoke" size="sm" onClick={() => revoke(t)}>
+                      <Trash2 className="h-4 w-4" />
+                    </IconButton>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+
+      <div className="mt-8">
+        <h3 className="mb-3 text-[15px] font-medium">Connected apps (OAuth)</h3>
+        {!grants ? (
+          <p className="text-[13px] text-neutral-400">Loading…</p>
+        ) : grants.length === 0 ? (
+          <p className="rounded-2xl bg-soft px-5 py-8 text-center text-[13.5px] text-neutral-500">No apps connected yet.</p>
+        ) : (
+          <table className="w-full text-[13.5px]">
+            <thead className="text-left text-[12px] text-neutral-400">
+              <tr>
+                <th className="pb-3 font-normal">App</th>
+                <th className="pb-3 font-normal">Logs as</th>
+                <th className="pb-3 font-normal">Connected</th>
+                <th className="pb-3 font-normal">Last used</th>
+                <th />
+              </tr>
+            </thead>
+            <tbody>
+              {grants.map((g) => (
+                <tr key={g.id} className="border-t border-neutral-100">
+                  <td className="py-3">{g.clientName}</td>
+                  <td className="py-3">{crm.users.find((u) => u.id === g.userId)?.name ?? "—"}</td>
+                  <td className="py-3 text-neutral-500">{formatDateTime(g.createdAt)}</td>
+                  <td className="py-3 text-neutral-500">{g.lastUsedAt ? formatDateTime(g.lastUsedAt) : "Never"}</td>
+                  <td className="py-3 text-right">
+                    <IconButton label="Disconnect" size="sm" onClick={() => disconnect(g)}>
                       <Trash2 className="h-4 w-4" />
                     </IconButton>
                   </td>

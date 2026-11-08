@@ -1,10 +1,13 @@
 // MCP server for outreach agents (Streamable HTTP, stateless JSON responses).
-// Auth: "Authorization: Bearer scrm_…" — a token from Admin → Social → Agent access.
+// Auth: "Authorization: Bearer <token>" — either a scrm_ token from Admin → Social → Agent access,
+// or an access token from the OAuth 2.1 flow (discovered through the 401 below).
 // The agent acts as the token's CRM user: same duplicate check, limits and permissions.
 
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { withAgentToken } from "@/server/outreach/agent-tokens";
+import { isOAuthBearer, withOAuthToken } from "@/server/outreach/oauth";
+import { publicUrl } from "@/server/agencies";
 import { AGENT_ACTIONS, agentDue, agentLog, agentLookup, agentSetStage } from "@/server/outreach/agent";
 import { OutreachError } from "@/server/outreach/service";
 import { OUTREACH_STAGES, PLATFORM_IDS, SENTIMENTS } from "@/lib/outreach/platforms";
@@ -233,7 +236,9 @@ export async function POST(req: Request) {
   } catch {
     return NextResponse.json({ jsonrpc: "2.0", id: null, error: { code: -32700, message: "Parse error" } }, { status: 400 });
   }
-  const auth = await withAgentToken(req.headers.get("authorization"), async (me, tokenName) => {
+  const bearer = req.headers.get("authorization");
+  const authenticate = isOAuthBearer(bearer) ? withOAuthToken : withAgentToken;
+  const auth = await authenticate(bearer, async (me, tokenName) => {
     const batch = Array.isArray(body) ? (body as RpcRequest[]) : [body as RpcRequest];
     const out = [];
     for (const m of batch.slice(0, 50)) {
@@ -244,8 +249,13 @@ export async function POST(req: Request) {
   });
   if (!auth.ok)
     return NextResponse.json(
-      { jsonrpc: "2.0", id: null, error: { code: -32001, message: "Unauthorized: send 'Authorization: Bearer <token>' from Admin → Social → Agent access." } },
-      { status: 401, headers: { "WWW-Authenticate": 'Bearer realm="strategic-crm"' } }
+      { jsonrpc: "2.0", id: null, error: { code: -32001, message: "Unauthorized: sign in with OAuth, or send 'Authorization: Bearer <token>' from Admin → Social → Agent access." } },
+      {
+        status: 401,
+        headers: {
+          "WWW-Authenticate": `Bearer realm="strategic-crm", resource_metadata="${publicUrl()}/.well-known/oauth-protected-resource/api/mcp"${bearer ? ', error="invalid_token"' : ""}`,
+        },
+      }
     );
   if (auth.value === null || (Array.isArray(auth.value) && auth.value.length === 0)) return new NextResponse(null, { status: 202 });
   return NextResponse.json(auth.value);
