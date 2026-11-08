@@ -243,3 +243,34 @@ export async function deleteSocialAccountAction(accountId: string) {
 export async function saveLeadSourcesAction(sources: string[]) {
   return run("saveLeadSources", async (me) => svc.saveLeadSources(me, z.array(z.string().max(120)).max(100).parse(sources)));
 }
+
+// ─── Agent access (MCP tokens) ───────────────────────────────
+
+export async function listAgentTokensAction() {
+  return run("listAgentTokens", async (me) => (await import("./agent-tokens")).listAgentTokens(me));
+}
+
+export async function createAgentTokenAction(input: { name: string; userId: string }) {
+  return run("createAgentToken", async (me) => {
+    const p = z.object({ name: z.string().max(80), userId: id }).parse(input);
+    const { getAgency } = await import("../db");
+    const { createAgentToken } = await import("./agent-tokens");
+    try {
+      return (await createAgentToken(me, p, (await getAgency()).id)).token;
+    } catch (e) {
+      throw new svc.OutreachError(e instanceof Error ? e.message : "Couldn't create the token.");
+    }
+  });
+}
+
+export async function revokeAgentTokenAction(tokenId: string) {
+  return run("revokeAgentToken", async (me) => {
+    const { revokeAgentToken } = await import("./agent-tokens");
+    try {
+      await revokeAgentToken(me, z.string().max(20).regex(/^[a-f0-9]+$/).parse(tokenId));
+    } catch (e) {
+      if (e instanceof z.ZodError) throw e;
+      throw new svc.OutreachError(e instanceof Error ? e.message : "Couldn't revoke the token.");
+    }
+  });
+}

@@ -50,6 +50,8 @@ async function db(): Promise<Db> {
   return getDb();
 }
 
+export const outreachDb = () => db();
+
 /** Owner ids whose threads `me` may see; null = everyone. Reps: own; BD: own + reports. */
 export async function threadOwnerScope(me: User) {
   return visibleUserIds(me);

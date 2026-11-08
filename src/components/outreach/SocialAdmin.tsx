@@ -13,6 +13,7 @@ import { Field, Input, Select, Textarea, Toggle } from "@/components/ui/Form";
 import { Modal } from "@/components/ui/Overlay";
 import { Segmented } from "@/components/ui/Segmented";
 import { PlatformIcon } from "./PlatformIcon";
+import { AgentAccess } from "./AgentAccess";
 import {
   deleteOutreachCampaignAction,
   deleteOutreachTemplateAction,
@@ -27,7 +28,7 @@ import { mergeTemplate } from "@/lib/outreach/rules";
 import { bookmarkletHref } from "@/lib/outreach/bookmarklet";
 import type { OCampaign, OSocialAccount, OTemplate } from "@/lib/outreach/types";
 
-type Sub = "templates" | "campaigns" | "accounts" | "sources" | "bookmarklet";
+type Sub = "templates" | "campaigns" | "accounts" | "sources" | "bookmarklet" | "agents";
 
 export function SocialAdmin() {
   const [sub, setSub] = useState<Sub>("templates");
@@ -43,6 +44,7 @@ export function SocialAdmin() {
           { value: "accounts", label: "Social accounts" },
           { value: "sources", label: "Lead sources" },
           { value: "bookmarklet", label: "Bookmarklet" },
+          { value: "agents", label: "Agent access (MCP)" },
         ]}
       />
       {sub === "templates" && <Templates />}
@@ -50,6 +52,7 @@ export function SocialAdmin() {
       {sub === "accounts" && <Accounts />}
       {sub === "sources" && <Sources />}
       {sub === "bookmarklet" && <BookmarkletCard />}
+      {sub === "agents" && <AgentAccess />}
     </div>
   );
 }
