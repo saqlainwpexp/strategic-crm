@@ -10,11 +10,13 @@ import { OutreachError } from "@/server/outreach/service";
 import { OUTREACH_STAGES, PLATFORM_IDS, SENTIMENTS } from "@/lib/outreach/platforms";
 import type { User } from "@/lib/types";
 import { LOG_TOOLS, LogError, callLogTool, isLogTool } from "@/server/outreach-log/agent";
+import { findContactByHandle } from "@/server/outreach-log/service";
+import { detectPlatform } from "@/lib/outreach/normalize";
 
 export const dynamic = "force-dynamic";
 
 const PROTOCOL = "2025-06-18";
-const INSTRUCTIONS = `Strategic CRM — social outreach log.
+const INSTRUCTIONS = `Strategic CRM — outreach agent tools. Social DMs, WhatsApp, email outreach and job applications are all logged in the Outreach & Jobs Log (separate from the cold-calling CRM); log_outreach / update_stage / lookup_lead / get_followups_due write there too.
 Rules for outreach agents:
 1. BEFORE messaging anyone, call lookup_lead with their profile URL. If advice says do not message, skip them.
 2. AFTER every send (connection request, DM, follow-up, comment, voice note, story reply), call log_outreach once.
@@ -119,8 +121,43 @@ const schemas = {
   get_followups_due: z.object({ platform, limit: z.number().int().min(1).max(200).optional() }),
 };
 
+/** Old social-outreach tool stages → Outreach & Jobs Log contact stages. */
+const LEGACY_STAGE: Record<string, string> = {
+  not_contacted: "new", connection_sent: "contacted", connected: "contacted", message_sent: "contacted", replied: "replied",
+  interested: "interested", call_booked: "meeting", won: "won", lost: "lost", not_interested: "lost", no_response: "no_response",
+};
+
+/**
+ * Social DM outreach now lives in the Outreach & Jobs Log, not the cold-calling CRM. The old
+ * tools keep working for existing agents but write to the log.
+ */
+async function callLegacy(me: User, name: string, args: unknown) {
+  const a = (args ?? {}) as Record<string, string | undefined>;
+  const channel = a.platform ?? detectPlatform(a.profile ?? "") ?? undefined;
+  if (name === "log_outreach") {
+    const action = a.action === "reply_received" ? "reply" : a.action === "connection_accepted" ? "note" : "followup";
+    const existing = channel ? await findContactByHandle(channel, a.profile ?? "") : null;
+    const ev = action === "followup" && !existing?.lastOutboundAt ? "sent" : action;
+    const text = a.action === "connection_accepted" ? "Connection accepted" : a.message;
+    return callLogTool(me, "log_touch", { channel, handle: a.profile, action: ev, message: text, name: a.name, company: a.company, title: a.title, occurred_at: a.occurred_at });
+  }
+  if (name === "lookup_lead") {
+    const c = channel ? await findContactByHandle(channel, a.profile ?? "") : null;
+    if (!c) return { found: false, advice: "Not contacted yet — OK to message." };
+    const closed = ["won", "lost", "no_response"].includes(c.stage);
+    return { found: true, contact: { id: c.id, name: c.name, stage: c.stage, next_followup_at: c.nextFollowupAt?.toISOString() ?? null }, advice: closed ? "Do not message — this contact is closed." : "Already in progress — only send if a follow-up is due." };
+  }
+  if (name === "update_stage") {
+    const c = channel ? await findContactByHandle(channel, a.profile ?? "") : null;
+    if (!c) throw new LogError("That profile isn't in the Outreach & Jobs Log yet — log_outreach first.");
+    return callLogTool(me, "set_log_stage", { kind: "contact", id: c.id, stage: LEGACY_STAGE[a.stage ?? ""] ?? a.stage, note: a.note, meeting_at: a.meeting_at });
+  }
+  return callLogTool(me, "get_log_due", {});
+}
+
 async function callTool(me: User, name: string, args: unknown) {
   if (isLogTool(name)) return callLogTool(me, name, args);
+  if (["log_outreach", "lookup_lead", "update_stage", "get_followups_due"].includes(name)) return callLegacy(me, name, args);
   switch (name) {
     case "log_outreach": {
       const a = schemas.log_outreach.parse(args ?? {});

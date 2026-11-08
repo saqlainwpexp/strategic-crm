@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Bot, Loader2 } from "lucide-react";
-import type { LogAccount } from "@prisma/client";
+import type { LogAccount, LogCampaign } from "@prisma/client";
 import { cn } from "@/lib/utils";
 import { useCrm } from "@/components/providers/CrmProvider";
 import { CONTACT_STAGE_LABEL, EVENT_LABEL, JOB_STAGE_LABEL, STAGE_TONE, channelLabel } from "@/lib/outreach-log/constants";
@@ -189,3 +189,40 @@ export const toLocalInput = (d: Date) => {
   const p = (n: number) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
 };
+
+export function CampaignChip({ campaign }: { campaign: Pick<LogCampaign, "name" | "color"> | null }) {
+  if (!campaign) return <span className="text-[13px] text-neutral-400">—</span>;
+  return (
+    <span className="inline-flex max-w-[200px] items-center gap-2 rounded-full px-3 py-1 text-[12.5px] font-medium" style={{ background: `${campaign.color}1f`, color: "rgb(var(--ink))" }}>
+      <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: campaign.color }} />
+      <span className="truncate">{campaign.name}</span>
+    </span>
+  );
+}
+
+export function CampaignSelect({ campaigns, value, onChange, className }: { campaigns: LogCampaign[]; value: string; onChange: (v: string) => void; className?: string }) {
+  return (
+    <select
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      className={cn("h-11 w-full cursor-pointer rounded-xl border border-black/[0.08] bg-white px-4 text-[14px] outline-none focus:border-ink/30", className)}
+    >
+      <option value="">No campaign</option>
+      {campaigns.filter((c) => c.active || c.id === value).map((c) => (
+        <option key={c.id} value={c.id}>{c.name}</option>
+      ))}
+    </select>
+  );
+}
+
+export function Tags({ tags, className }: { tags: string; className?: string }) {
+  const list = tags.split(",").map((t) => t.trim()).filter(Boolean);
+  if (!list.length) return null;
+  return (
+    <span className={cn("flex flex-wrap gap-1.5", className)}>
+      {list.map((t) => (
+        <span key={t} className="rounded-full bg-page px-2.5 py-0.5 text-[11.5px] text-neutral-600">#{t}</span>
+      ))}
+    </span>
+  );
+}

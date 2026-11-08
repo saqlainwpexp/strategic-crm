@@ -9,7 +9,6 @@ import { permissionsFor } from "@/lib/access";
 import { unreadThreadCount } from "@/server/email/load";
 import { loadOutreachData } from "@/server/outreach/service";
 import { OutreachProvider } from "@/components/providers/OutreachProvider";
-import { SocialReminders } from "@/components/outreach/SocialReminders";
 
 // Per-user, per-request data.
 export const dynamic = "force-dynamic";
@@ -31,7 +30,6 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         <main className="mx-auto max-w-[1440px] px-6 pb-16 lg:px-10">{children}</main>
       </div>
       <ReminderCenter />
-      <SocialReminders />
       </OutreachProvider>
     </CrmProvider>
   );

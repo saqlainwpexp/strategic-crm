@@ -279,7 +279,9 @@ export async function loadContacts(query: ContactQuery) {
   else if (query.status === "NO_EMAIL") and.push({ OR: [{ email: null }, { email: { not: { contains: "@" } } }] });
   if (query.tag) and.push({ tags: { array_contains: [query.tag] } });
   if (query.stage) and.push({ stage: query.stage as PipelineStage });
-  const where: Prisma.LeadWhereInput = and.length ? { AND: and } : {};
+  // Email marketing only lists leads that have an email address.
+  and.push({ email: { contains: "@" } });
+  const where: Prisma.LeadWhereInput = { AND: and };
 
   const page = Math.max(1, query.page ?? 1);
   const [total, rows, counts] = await Promise.all([

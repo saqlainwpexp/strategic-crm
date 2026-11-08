@@ -21,7 +21,10 @@ import {
   findContactByHandle,
   findJobByUrl,
   listAccounts,
+  listCampaigns,
   logContactEvent,
+  resolveCampaign,
+  updateContact,
   logJobEvent,
   sendCounts,
   setContactStage,
@@ -75,6 +78,8 @@ export const LOG_TOOLS = [
         action: { type: "string", enum: CONTACT_EVENTS, description: "sent = first message, followup = follow-up, reply = they replied, note = context only." },
         account: { type: "string", description: "Which of your sending accounts was used — its id or label (see list_log_accounts). Needed when you have several accounts on a channel." },
         message: { type: "string", description: "Exact text sent or received." },
+        campaign: { type: "string", description: "Campaign / pool this outreach belongs to, by name or id, e.g. 'Free website offer'. Keeps different offers separate. A new name creates the campaign." },
+        tags: { type: "string", description: "Comma-separated tags, e.g. 'shopify, us'." },
         name: { type: "string" },
         company: { type: "string" },
         title: { type: "string" },
@@ -139,11 +144,17 @@ export const LOG_TOOLS = [
   {
     name: "get_log_due",
     description: "Outreach & Jobs log: follow-ups and replies due now (or within `days`), across all channels and job applications, plus today's send counts per account. Start every session with this.",
-    inputSchema: { type: "object", properties: { days: { type: "number", description: "Also include items due in the next N days (default 0 = due now/today)." } } },
+    inputSchema: {
+      type: "object",
+      properties: {
+        days: { type: "number", description: "Also include items due in the next N days (default 0 = due now/today)." },
+        campaign: { type: "string", description: "Only this campaign (name or id). Excludes job applications." },
+      },
+    },
   },
   {
     name: "list_log_accounts",
-    description: "Outreach & Jobs log: your sending accounts (several WhatsApp numbers, Facebook profiles, inboxes…) with ids, daily limits and today's sends.",
+    description: "Outreach & Jobs log: your sending accounts (several WhatsApp numbers, Facebook profiles, inboxes…) with ids, daily limits and today's sends, plus the outreach campaigns / pools.",
     inputSchema: { type: "object", properties: {} },
   },
 ] as const;
@@ -155,6 +166,8 @@ const S = {
     action: z.enum(CONTACT_EVENTS),
     account: z.string().max(200).optional(),
     message: z.string().max(10000).optional(),
+    campaign: z.string().max(120).optional(),
+    tags: z.string().max(500).optional(),
     name: z.string().max(200).optional(),
     company: z.string().max(200).optional(),
     title: z.string().max(200).optional(),
@@ -183,7 +196,7 @@ const S = {
     occurred_at: when,
   }),
   set_log_stage: z.object({ kind: z.enum(["contact", "job"]), id: z.string().max(64), stage: z.string().max(20), note: z.string().max(4000).optional(), meeting_at: when }),
-  get_log_due: z.object({ days: z.number().int().min(0).max(60).optional() }),
+  get_log_due: z.object({ days: z.number().int().min(0).max(60).optional(), campaign: z.string().max(120).optional() }),
   list_log_accounts: z.object({}).passthrough(),
 };
 
@@ -195,8 +208,13 @@ export async function callLogTool(me: User, name: string, args: unknown) {
     case "log_touch": {
       const a = S.log_touch.parse(args ?? {});
       const accountId = await resolveAccount(me, a.account, a.channel);
+      const campaignId = await resolveCampaign(me, a.campaign, true);
       const existing = await findContactByHandle(a.channel, a.handle);
-      const c = existing ?? (await createContact(me, { channel: a.channel, handle: a.handle, name: a.name ?? a.handle, company: a.company, title: a.title, accountId }, { ...agent, reuse: true }));
+      const c =
+        existing ??
+        (await createContact(me, { channel: a.channel, handle: a.handle, name: a.name ?? a.handle, company: a.company, title: a.title, accountId, campaignId, tags: a.tags }, { ...agent, reuse: true }));
+      if (existing && ((campaignId && existing.campaignId !== campaignId) || a.tags))
+        await updateContact(me, existing.id, { ...(campaignId && { campaignId }), ...(a.tags && { tags: [existing.tags, a.tags].filter(Boolean).join(", ") }) });
       const r = await logContactEvent(me, c.id, a.action, { text: a.message, accountId: accountId ?? undefined, at: toDate(a.occurred_at) }, agent);
       return { created: !existing, contact: contactOut(r.contact), warning: r.warning };
     }
@@ -232,16 +250,19 @@ export async function callLogTool(me: User, name: string, args: unknown) {
     case "get_log_due": {
       const a = S.get_log_due.parse(args ?? {});
       const until = a.days ? new Date(Date.now() + a.days * 864e5) : undefined;
-      const [items, accounts, counts] = await Promise.all([dueFollowups(me, until), listAccounts(me), sendCounts(me)]);
+      const campaignId = (await resolveCampaign(me, a.campaign)) ?? undefined;
+      const [items, accounts, counts, campaigns] = await Promise.all([dueFollowups(me, until, campaignId), listAccounts(me), sendCounts(me), listCampaigns()]);
+      const cname = (id: string | null) => campaigns.find((c) => c.id === id)?.name ?? null;
       return {
         brief: AGENT_BRIEF,
-        due: items.slice(0, 200),
+        due: items.slice(0, 200).map((i) => ({ ...i, campaign: cname(i.campaignId) })),
         accounts: accounts.map((x) => ({ id: x.id, channel: x.channel, label: x.label, daily_limit: x.dailyLimit || null, sent_today: counts.find((c) => c.accountId === x.id)?.sent ?? 0 })),
       };
     }
     case "list_log_accounts": {
-      const [accounts, counts] = await Promise.all([listAccounts(me), sendCounts(me)]);
+      const [accounts, counts, campaigns] = await Promise.all([listAccounts(me), sendCounts(me), listCampaigns()]);
       return {
+        campaigns: campaigns.map((c) => ({ id: c.id, name: c.name, description: c.description, active: c.active })),
         accounts: accounts.map((x) => ({ id: x.id, channel: x.channel, label: x.label, handle: x.handle, active: x.active, daily_limit: x.dailyLimit || null, sent_today: counts.find((c) => c.accountId === x.id)?.sent ?? 0 })),
       };
     }

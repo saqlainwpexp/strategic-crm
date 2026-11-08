@@ -12,7 +12,6 @@ import { FilterSelect } from "@/components/ui/Form";
 import { PaymentModal } from "@/components/shared/PaymentModal";
 import { AnalyticsTab } from "@/components/reports/AnalyticsTab";
 import { SalesActivityTab } from "@/components/reports/SalesActivityTab";
-import { SocialDashboard } from "@/components/outreach/SocialDashboard";
 import { RANGE_OPTIONS, useReportReps, type ReportRange } from "@/components/reports/useReport";
 import { PerformanceCard } from "./PerformanceCard";
 import { UpcomingSchedule } from "./UpcomingSchedule";
@@ -26,7 +25,6 @@ const TABS: { value: Tab; label: string }[] = [
   { value: "overview", label: "Overview" },
   { value: "analytics", label: "Analytics" },
   { value: "sales", label: "Sales & Activity" },
-  { value: "social", label: "Social Outreach" },
 ];
 
 export function DashboardView() {
@@ -41,7 +39,7 @@ export function DashboardView() {
   const { hour } = zonedParts();
 
   const tabParam = params.get("tab");
-  const tab: Tab = tabParam === "analytics" || tabParam === "sales" || tabParam === "social" ? tabParam : "overview";
+  const tab: Tab = tabParam === "analytics" || tabParam === "sales" ? tabParam : "overview";
   const setTab = useCallback(
     (t: Tab) => router.replace(t === "overview" ? pathname : `${pathname}?tab=${t}`, { scroll: false }),
     [router, pathname]
@@ -112,7 +110,6 @@ export function DashboardView() {
       )}
       {tab === "analytics" && <AnalyticsTab range={range} repId={repId} />}
       {tab === "sales" && <SalesActivityTab range={range} repId={repId} />}
-      {tab === "social" && <SocialDashboard range={range} repId={repId} />}
 
       <PaymentModal open={recording} onClose={() => setRecording(false)} />
     </div>

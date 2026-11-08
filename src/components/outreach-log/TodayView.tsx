@@ -2,14 +2,14 @@
 
 import Link from "next/link";
 import { BellRing, Briefcase, CalendarClock, MessagesSquare, Reply, Send } from "lucide-react";
-import type { LogAccount } from "@prisma/client";
+import type { LogAccount, LogCampaign } from "@prisma/client";
 import type { DueItem } from "@/server/outreach-log/service";
 import { PageHeader, EmptyState, StatCard } from "@/components/ui/Layout";
 import { Button, buttonClass } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { cn } from "@/lib/utils";
 import { channelLabel, jobSourceLabel } from "@/lib/outreach-log/constants";
-import { ChannelTag, DueText, StagePill } from "./shared";
+import { CampaignChip, ChannelTag, DueText, StagePill } from "./shared";
 
 const REASON: Record<DueItem["reason"], string> = {
   reply_waiting: "Reply waiting on you",
@@ -23,11 +23,13 @@ export function TodayView({
   accounts,
   counts,
   totals,
+  campaigns,
 }: {
   due: DueItem[];
   accounts: LogAccount[];
   counts: { accountId: string; sent: number; limit: number }[];
   totals: { contacts: number; jobs: number; activeContacts: number; activeJobs: number };
+  campaigns: LogCampaign[];
 }) {
   const replies = due.filter((d) => d.reason === "reply_waiting");
   const rest = due.filter((d) => d.reason !== "reply_waiting");
@@ -52,6 +54,7 @@ export function TodayView({
       <span className="w-[200px] min-w-0">
         {it.kind === "contact" ? <ChannelTag channel={it.channel} account={accountLabel(it.accountId)} /> : <span className="text-[13px] text-neutral-600">{jobSourceLabel(it.channel)}</span>}
       </span>
+      <span className="hidden w-[170px] md:block">{it.kind === "contact" && <CampaignChip campaign={campaigns.find((c) => c.id === it.campaignId) ?? null} />}</span>
       <StagePill kind={it.kind} stage={it.stage} />
       <DueText at={it.dueAt} className="w-[96px] text-right" />
     </Link>

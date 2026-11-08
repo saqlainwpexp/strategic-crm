@@ -57,7 +57,6 @@ const STATUS_TABS: { value: "" | ContactStatus; label: string }[] = [
   { value: "SUBSCRIBED", label: "Subscribed" },
   { value: "UNSUBSCRIBED", label: "Unsubscribed" },
   { value: "BOUNCED", label: "Bounced" },
-  { value: "NO_EMAIL", label: "No email" },
 ];
 
 export function ContactsView({ contacts, total, page, pages, tags, automations, focus, reps }: Props) {

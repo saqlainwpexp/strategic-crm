@@ -5,10 +5,10 @@ import { ContactsView } from "@/components/outreach-log/ContactsView";
 
 export default async function LogOutreachPage() {
   const me = await requirePageUser();
-  const { accounts, contacts } = await loadLog(me);
+  const { accounts, contacts, campaigns } = await loadLog(me);
   return (
     <Suspense>
-      <ContactsView contacts={contacts} accounts={accounts} />
+      <ContactsView contacts={contacts} accounts={accounts} campaigns={campaigns} />
     </Suspense>
   );
 }

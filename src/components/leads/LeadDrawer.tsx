@@ -192,7 +192,6 @@ export function LeadDrawer({
                 options={[
                   { value: "overview", label: "Overview" },
                   { value: "activity", label: "Activity", count: activityCount },
-                  { value: "social", label: "Social", count: outreach.threads.filter((t) => t.leadId === lead.id).length || undefined },
                   { value: "notes", label: "Notes" },
                 ]}
               />

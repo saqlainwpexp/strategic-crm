@@ -115,6 +115,55 @@ async function limitWarning(d: Db, accountId: string | null): Promise<string | n
   return null;
 }
 
+// ─── Campaigns / pools (keep e.g. "Free website offer" separate) ───
+
+export async function listCampaigns() {
+  return (await db()).logCampaign.findMany({ orderBy: [{ active: "desc" }, { name: "asc" }] });
+}
+
+const HEX = /^#[0-9a-fA-F]{6}$/;
+
+export async function saveCampaign(me: User, input: { id?: string; name: string; color?: string; description?: string; active?: boolean }) {
+  const name = clip(input.name, 120);
+  if (!name) throw new LogError("Name the campaign, e.g. “Free website offer”.");
+  const d = await db();
+  const clash = await d.logCampaign.findFirst({ where: { name } });
+  if (clash && clash.id !== input.id) throw new LogError(`A campaign called “${name}” already exists.`);
+  const data = { name, color: input.color && HEX.test(input.color) ? input.color : "#EA8B5E", description: clip(input.description, 500), active: input.active ?? true };
+  if (input.id) {
+    if (!(await d.logCampaign.findFirst({ where: { id: input.id } }))) throw new LogError("Campaign not found.");
+    return d.logCampaign.update({ where: { id: input.id }, data });
+  }
+  return d.logCampaign.create({ data: { ...data, ownerId: me.id } });
+}
+
+export async function deleteCampaign(id: string) {
+  const d = await db();
+  if (!(await d.logCampaign.findFirst({ where: { id } }))) throw new LogError("Campaign not found.");
+  // Contacts stay; they just leave the campaign (FK is SET NULL).
+  await d.logCampaign.delete({ where: { id } });
+}
+
+/** By id or name (case-insensitive). With `create`, an unknown name becomes a new campaign. */
+export async function resolveCampaign(me: User, ref: string | null | undefined, create = false) {
+  if (!ref) return null;
+  const all = await listCampaigns();
+  const r = ref.trim().toLowerCase();
+  const hit = all.find((c) => c.id === ref) ?? all.find((c) => c.name.toLowerCase() === r);
+  if (hit) return hit.id;
+  if (!create) throw new LogError(`No campaign “${ref}”.`);
+  return (await saveCampaign(me, { name: ref })).id;
+}
+
+async function checkCampaign(d: Db, campaignId: string | null | undefined) {
+  if (!campaignId) return;
+  if (!(await d.logCampaign.findFirst({ where: { id: campaignId } }))) throw new LogError("That campaign doesn't exist.");
+}
+
+/** "Shopify, US , hot" -> "shopify, us, hot" (deduped, max 500 chars). */
+export const normalizeTags = (v: unknown) =>
+  clip([...new Set((typeof v === "string" ? v : "").split(",").map((t) => t.trim().toLowerCase()).filter(Boolean))].join(", "), 500);
+
 // ─── Outreach contacts ───────────────────────────────────────
 
 export type ContactInput = {
@@ -126,6 +175,8 @@ export type ContactInput = {
   accountId?: string | null;
   source?: string;
   notes?: string;
+  campaignId?: string | null;
+  tags?: string;
 };
 
 export async function findContactByHandle(channel: string, handle: string) {
@@ -149,6 +200,7 @@ export async function createContact(me: User, input: ContactInput, opts: Opts & 
     }
   }
   await checkAccount(d, me, input.accountId, input.channel);
+  await checkCampaign(d, input.campaignId);
   const row = await d.logContact.create({
     data: {
       ownerId: me.id,
@@ -161,6 +213,8 @@ export async function createContact(me: User, input: ContactInput, opts: Opts & 
       accountId: input.accountId || null,
       source: clip(input.source, 120),
       notes: clip(input.notes, 10000) || null,
+      campaignId: input.campaignId || null,
+      tags: normalizeTags(input.tags),
     },
   });
   return row;
@@ -178,6 +232,7 @@ export async function updateContact(me: User, id: string, input: Partial<Contact
   const channel = input.channel && isChannel(input.channel) ? input.channel : row.channel;
   const handle = input.handle !== undefined ? clip(input.handle, 500) : row.handle;
   if (input.accountId) await checkAccount(d, me, input.accountId, channel);
+  if (input.campaignId) await checkCampaign(d, input.campaignId);
   return d.logContact.update({
     where: { id },
     data: {
@@ -190,6 +245,8 @@ export async function updateContact(me: User, id: string, input: Partial<Contact
       ...(input.source !== undefined && { source: clip(input.source, 120) }),
       ...(input.notes !== undefined && { notes: clip(input.notes, 10000) || null }),
       ...(input.accountId !== undefined && { accountId: input.accountId || null }),
+      ...(input.campaignId !== undefined && { campaignId: input.campaignId || null }),
+      ...(input.tags !== undefined && { tags: normalizeTags(input.tags) }),
     },
   });
 }
@@ -449,6 +506,7 @@ export type DueItem = {
   reason: "reply_waiting" | "followup_due" | "interview_followup" | "check_in";
   followupCount: number;
   accountId: string | null;
+  campaignId: string | null;
   handle: string;
   url: string;
   ownerId: string | null;
@@ -465,6 +523,7 @@ const contactDue = (c: LogContact): DueItem => ({
   reason: awaitingUs(c) ? "reply_waiting" : ["contacted", "followed_up"].includes(c.stage) ? "followup_due" : "check_in",
   followupCount: c.followupCount,
   accountId: c.accountId,
+  campaignId: c.campaignId,
   handle: c.handle,
   url: "",
   ownerId: c.ownerId,
@@ -481,20 +540,21 @@ const jobDue = (j: JobApplication): DueItem => ({
   reason: awaitingUs(j) && j.stage === "responded" ? "reply_waiting" : j.stage === "interview" ? "interview_followup" : ["applied", "followed_up"].includes(j.stage) ? "followup_due" : "check_in",
   followupCount: j.followupCount,
   accountId: j.accountId,
+  campaignId: null,
   handle: j.contactInfo,
   url: j.url,
   ownerId: j.ownerId,
 });
 
 /** Everything due by `until` (default: end of today), oldest first. `me` null = whole agency (cron). */
-export async function dueFollowups(me: User | null, until?: Date) {
+export async function dueFollowups(me: User | null, until?: Date, campaignId?: string) {
   await sweepStale();
   const d = await db();
   const end = until ?? new Date(zonedISO(todayKey(), 23, 59));
   const scope = me ? await ownerScope(me) : {};
   const [contacts, jobs] = await Promise.all([
-    d.logContact.findMany({ where: { ...scope, nextFollowupAt: { lte: end } }, orderBy: { nextFollowupAt: "asc" }, take: 500 }),
-    d.jobApplication.findMany({ where: { ...scope, nextFollowupAt: { lte: end } }, orderBy: { nextFollowupAt: "asc" }, take: 500 }),
+    d.logContact.findMany({ where: { ...scope, nextFollowupAt: { lte: end }, ...(campaignId && { campaignId }) }, orderBy: { nextFollowupAt: "asc" }, take: 500 }),
+    campaignId ? Promise.resolve([] as JobApplication[]) : d.jobApplication.findMany({ where: { ...scope, nextFollowupAt: { lte: end } }, orderBy: { nextFollowupAt: "asc" }, take: 500 }),
   ]);
   return [...contacts.map(contactDue), ...jobs.map(jobDue)].sort((a, b) => a.dueAt.localeCompare(b.dueAt));
 }
@@ -503,13 +563,14 @@ export async function loadLog(me: User) {
   await sweepStale();
   const d = await db();
   const scope = await ownerScope(me);
-  const [accounts, contacts, jobs, counts] = await Promise.all([
+  const [accounts, contacts, jobs, counts, campaigns] = await Promise.all([
     listAccounts(me),
     d.logContact.findMany({ where: scope, orderBy: { updatedAt: "desc" }, take: 2000 }),
     d.jobApplication.findMany({ where: scope, orderBy: { updatedAt: "desc" }, take: 2000 }),
     sendCounts(me),
+    listCampaigns(),
   ]);
-  return { accounts, contacts, jobs, counts };
+  return { accounts, contacts, jobs, counts, campaigns };
 }
 
 // ─── Signal settings (webhook to a Claude agent / routine) ───
@@ -531,7 +592,7 @@ export async function writeSignalConfig(patch: Partial<SignalConfig>) {
 }
 
 export const AGENT_BRIEF =
-  "Follow-ups are due in the Strategic CRM Outreach & Jobs log. For each item: open the conversation, send a short, personal follow-up (or answer the reply that is waiting), then call log_touch (contacts) or log_job_event (jobs) on the strategic-crm MCP server so the next follow-up is scheduled. Respect account daily limits; if an item needs a human decision, call set_log_stage with a note instead.";
+  "Follow-ups are due in the Strategic CRM Outreach & Jobs log. Each item names its campaign — keep the message on that offer. For each item: open the conversation, send a short, personal follow-up (or answer the reply that is waiting), then call log_touch (contacts) or log_job_event (jobs) on the strategic-crm MCP server so the next follow-up is scheduled. Respect account daily limits; if an item needs a human decision, call set_log_stage with a note instead.";
 
 /**
  * Finds follow-ups that became due since the last signal and POSTs them to the configured

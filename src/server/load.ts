@@ -11,6 +11,9 @@ const DAY = 24 * 60 * 60 * 1000;
 const ACTIVITY_DAYS = 70;
 const MEETING_DAYS = 120;
 
+/** A lead belongs to the cold-calling CRM when it has a phone number. */
+export const CALLABLE = { phone: { not: null }, NOT: { phone: "" } } as const;
+
 export async function loadCrmData(viewer: User): Promise<{ data: CrmData; allUsers: User[] }> {
   const ids = await visibleUserIds(viewer);
   const mine = ids ? { in: [...ids] } : undefined;
@@ -20,7 +23,9 @@ export async function loadCrmData(viewer: User): Promise<{ data: CrmData; allUse
 
   const [users, leads, scripts, customFields, pools, settings] = await Promise.all([
     (await getDb()).user.findMany({ orderBy: { name: "asc" } }),
-    (await getDb()).lead.findMany({ where: ids ? { assignedToId: mine } : {}, orderBy: { leadScore: "desc" } }),
+    // Cold calling only shows leads you can call. Email-only leads live in Email Marketing,
+    // social DM contacts in the Outreach & Jobs Log.
+    (await getDb()).lead.findMany({ where: { ...(ids ? { assignedToId: mine } : {}), ...CALLABLE }, orderBy: { leadScore: "desc" } }),
     (await getDb()).script.findMany({ orderBy: { createdAt: "asc" } }),
     (await getDb()).customFieldDef.findMany({ orderBy: [{ order: "asc" }, { createdAt: "asc" }] }),
     (await getDb()).pool.findMany({ orderBy: { name: "asc" } }),

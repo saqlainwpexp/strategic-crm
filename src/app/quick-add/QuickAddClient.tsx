@@ -6,9 +6,10 @@ import { Button } from "@/components/ui/Button";
 import { Field, Input } from "@/components/ui/Form";
 import { PlatformIcon } from "@/components/outreach/PlatformIcon";
 import { detectPlatform, nameFromPageTitle } from "@/lib/outreach/normalize";
-import { STAGE_LABEL, platformLabel, type OutreachStage } from "@/lib/outreach/platforms";
+import { platformLabel } from "@/lib/outreach/platforms";
+import { CONTACT_STAGE_LABEL } from "@/lib/outreach-log/constants";
 
-type Result = { created: boolean; platform: string; leadId: string; threadId: string; name: string; stage: OutreachStage };
+type Result = { created: boolean; platform: string; contactId: string; name: string; stage: string };
 
 export function QuickAddClient({ url, title }: { url: string; title: string }) {
   const platform = detectPlatform(url);
@@ -55,14 +56,14 @@ export function QuickAddClient({ url, title }: { url: string; title: string }) {
     return (
       <div className="rounded-[20px] bg-white p-6">
         <CheckCircle2 className="h-7 w-7 text-emerald-600" />
-        <h1 className="mt-4 text-[19px] font-medium">{result.created ? "Added to the CRM" : "Already in the CRM"}</h1>
+        <h1 className="mt-4 text-[19px] font-medium">{result.created ? "Added to the Outreach & Jobs Log" : "Already in the Outreach & Jobs Log"}</h1>
         <p className="mt-2 text-[13.5px] leading-relaxed text-neutral-500">
-          {result.name} · {platformLabel(result.platform)} · {STAGE_LABEL[result.stage]}
+          {result.name} · {platformLabel(result.platform)} · {(CONTACT_STAGE_LABEL as Record<string, string>)[result.stage] ?? result.stage}
         </p>
         <div className="mt-6 flex flex-wrap gap-3">
-          <a href={`/loadboard?tab=social&lead=${result.leadId}`} target="_blank" rel="noreferrer">
+          <a href={`/log/outreach?contact=${result.contactId}`} target="_blank" rel="noreferrer">
             <Button variant="brand" size="sm">
-              Open in CRM <ExternalLink className="h-3.5 w-3.5" />
+              Open in log <ExternalLink className="h-3.5 w-3.5" />
             </Button>
           </a>
           <Button variant="ghost" size="sm" onClick={() => window.close()}>

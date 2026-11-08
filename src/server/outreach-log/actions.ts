@@ -48,6 +48,18 @@ export const logJobTouch = async (id: string, ev: JobEvent, input: { text?: stri
 export const setJobApplicationStage = async (id: string, stage: JobStage, note?: string) => run((me) => svc.setJobStage(me, id, stage, { note }));
 export const setJobApplicationFollowup = async (id: string, when: string | null) => run((me) => svc.setJobFollowup(me, id, when ? new Date(when) : null));
 
+export const saveLogCampaign = async (input: Parameters<typeof svc.saveCampaign>[1]) => run((me) => svc.saveCampaign(me, input));
+export const deleteLogCampaign = async (id: string) =>
+  run(async (me) => {
+    if (me.role !== "MANAGER" && me.role !== "SUPER_ADMIN") throw new svc.LogError("Only managers and admins can delete campaigns.");
+    return svc.deleteCampaign(id);
+  });
+export const bulkSetLogCampaign = async (ids: string[], campaignId: string | null) =>
+  run(async (me) => {
+    for (const id of ids.slice(0, 500)) await svc.updateContact(me, id, { campaignId });
+    return ids.length;
+  });
+
 export const loadLogTimeline = async (kind: "contact" | "job", id: string) => run((me) => svc.timeline(me, kind, id));
 export const reloadLog = async () => run((me) => svc.loadLog(me));
 

@@ -120,6 +120,7 @@ model User {
   logContacts        LogContact[]
   jobApplications    JobApplication[]
   logActivities      LogActivity[]
+  logCampaigns       LogCampaign[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1064,6 +1065,9 @@ model LogContact {
   channel        String        @db.VarChar(20)
   accountId      String?
   account        LogAccount?   @relation(fields: [accountId], references: [id], onDelete: SetNull)
+  campaignId     String?
+  campaign       LogCampaign?  @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+  tags           String        @default("") @db.VarChar(500)
   handle         String        @default("") @db.VarChar(500)
   handleKey      String        @default("") @db.VarChar(500)
   stage          String        @default("new") @db.VarChar(20)
@@ -1083,6 +1087,7 @@ model LogContact {
   @@index([stage])
   @@index([nextFollowupAt])
   @@index([handleKey])
+  @@index([campaignId])
 }
 
 model JobApplication {
@@ -1142,4 +1147,21 @@ model LogActivity {
   @@index([contactId])
   @@index([jobId])
   @@index([accountId, occurredAt])
+}
+
+/// A pool / campaign that keeps one kind of outreach separate, e.g. "Free website offer".
+model LogCampaign {
+  agencyId    String       @default("default")
+  id          String       @id @default(cuid())
+  ownerId     String?
+  owner       User?        @relation(fields: [ownerId], references: [id], onDelete: SetNull)
+  name        String       @db.VarChar(120)
+  color       String       @default("#EA8B5E") @db.VarChar(16)
+  description String       @default("") @db.VarChar(500)
+  active      Boolean      @default(true)
+  contacts    LogContact[]
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  @@index([agencyId])
 }

@@ -1,11 +1,13 @@
 // POST /api/outreach/quick-add {url, name?, title?, company?}
 // Signed-in users only (session cookie). Works out the platform from the URL, runs the
-// duplicate check, then creates or returns the lead and its thread.
+// duplicate check, then creates or returns the contact in the Outreach & Jobs Log
+// (social leads no longer go into the cold-calling CRM).
 
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getCurrentUser } from "@/server/session";
-import { OutreachError, quickAdd } from "@/server/outreach/service";
+import { LogError, createContact, findContactByHandle } from "@/server/outreach-log/service";
+import { detectPlatform } from "@/lib/outreach/normalize";
 
 const body = z.object({
   url: z.string().min(1).max(1000),
@@ -29,10 +31,13 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Send JSON: {url, name?, title?, company?}" }, { status: 400 });
   }
   try {
-    const result = await quickAdd(me, input);
-    return NextResponse.json(result, { status: result.created ? 201 : 200 });
+    const platform = detectPlatform(input.url);
+    if (!platform) return NextResponse.json({ error: "Open this on a LinkedIn, Facebook, Instagram, Threads, X or TikTok profile." }, { status: 422 });
+    const existing = await findContactByHandle(platform, input.url);
+    const c = existing ?? (await createContact(me, { channel: platform, handle: input.url, name: input.name || input.url, company: input.company, title: input.title, source: "Bookmarklet" }));
+    return NextResponse.json({ created: !existing, platform, contactId: c.id, name: c.name, stage: c.stage }, { status: existing ? 200 : 201 });
   } catch (e) {
-    if (e instanceof OutreachError) return NextResponse.json({ error: e.message }, { status: e.code === "forbidden" ? 403 : 422 });
+    if (e instanceof LogError) return NextResponse.json({ error: e.message }, { status: 422 });
     console.error("[quick-add]", e);
     return NextResponse.json({ error: "Something went wrong." }, { status: 500 });
   }
