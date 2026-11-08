@@ -20,6 +20,8 @@ export function permissionsFor(role: Role) {
     emailMarketing: manager,
     /** LinkedIn automation (accounts, campaigns, prospects, inbox). */
     linkedIn: manager,
+    /** Outreach & Jobs log (WhatsApp/email/DM outreach + job applications). Everyone; non-managers see their own. */
+    outreachLog: true,
     /** Permanently delete leads (and their calls, meetings, payments, email history). */
     deleteLeads: manager,
     /** Super Admin only: branding, custom fields, pools, settings. */

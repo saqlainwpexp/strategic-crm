@@ -17,7 +17,8 @@
     "li:worker": "tsx --env-file=.env scripts/linkedin-worker.ts",
     "agency": "tsx --env-file=.env scripts/agency.ts",
     "test:agencies": "tsx --test tests/agencies.test.ts",
-    "test:outreach": "tsx --test tests/outreach-rules.test.ts"
+    "test:outreach": "tsx --test tests/outreach-rules.test.ts",
+    "test:log": "tsx --test tests/outreach-log-rules.test.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

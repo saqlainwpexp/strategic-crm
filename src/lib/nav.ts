@@ -43,8 +43,8 @@ export function navFor(role: Role): { primary: NavKey[]; more: NavKey[] } {
 
 // ─── Email marketing ─────────────────────────────────────────
 
-/** The three apps behind the logo switcher. */
-export type AppMode = "calling" | "email" | "linkedin";
+/** The apps behind the logo switcher. */
+export type AppMode = "calling" | "email" | "linkedin" | "log";
 
 export const EMAIL_HOME = "/email";
 
@@ -68,6 +68,7 @@ export const EMAIL_NAV_ORDER: { primary: EmailNavKey[]; more: EmailNavKey[] } = 
 export function modeFor(pathname: string): AppMode {
   if (pathname === "/email" || pathname.startsWith("/email/")) return "email";
   if (pathname === "/linkedin" || pathname.startsWith("/linkedin/")) return "linkedin";
+  if (pathname === "/log" || pathname.startsWith("/log/")) return "log";
   return "calling";
 }
 
@@ -89,4 +90,22 @@ export const LINKEDIN_NAV: Record<LinkedInNavKey, { label: string; href: string;
 export const LINKEDIN_NAV_ORDER: { primary: LinkedInNavKey[]; more: LinkedInNavKey[] } = {
   primary: ["overview", "accounts", "campaigns", "prospects", "inbox"],
   more: ["templates"],
+};
+
+// ─── Outreach & Jobs log ─────────────────────────────────────
+
+export const LOG_HOME = "/log";
+
+export type LogNavKey = "today" | "outreach" | "jobs" | "accounts";
+
+export const LOG_NAV: Record<LogNavKey, { label: string; href: string; exact?: boolean }> = {
+  today: { label: "Today", href: "/log", exact: true },
+  outreach: { label: "Outreach", href: "/log/outreach" },
+  jobs: { label: "Jobs", href: "/log/jobs" },
+  accounts: { label: "Accounts & agent", href: "/log/accounts" },
+};
+
+export const LOG_NAV_ORDER: { primary: LogNavKey[]; more: LogNavKey[] } = {
+  primary: ["today", "outreach", "jobs", "accounts"],
+  more: [],
 };

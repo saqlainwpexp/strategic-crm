@@ -9,6 +9,7 @@ import { AGENT_ACTIONS, agentDue, agentLog, agentLookup, agentSetStage } from "@
 import { OutreachError } from "@/server/outreach/service";
 import { OUTREACH_STAGES, PLATFORM_IDS, SENTIMENTS } from "@/lib/outreach/platforms";
 import type { User } from "@/lib/types";
+import { LOG_TOOLS, LogError, callLogTool, isLogTool } from "@/server/outreach-log/agent";
 
 export const dynamic = "force-dynamic";
 
@@ -20,7 +21,13 @@ Rules for outreach agents:
 3. When you see a reply, call log_outreach with action "reply_received" and the reply text. When a connection is accepted, action "connection_accepted".
 4. When someone is interested, books a call, says no, or becomes a client, call update_stage.
 5. If log_outreach returns an error about the daily limit, STOP sending on that platform for today.
-6. Start a session with get_followups_due to see replies waiting and follow-ups due.`;
+6. Start a session with get_followups_due to see replies waiting and follow-ups due.
+
+Outreach & Jobs log (separate from the cold-calling CRM — WhatsApp, email, social DMs and remote job applications, across several sending accounts per channel):
+7. Start with get_log_due. For each item, send the follow-up / answer the reply, then log it.
+8. After EVERY WhatsApp/email/DM you send, call log_touch with the channel, the person's handle and the account you used. When they reply, log_touch with action "reply".
+9. When you apply to a job, call log_job. Later responses, interviews, offers or rejections go to log_job_event. Stages and follow-up dates update automatically.
+10. If log_touch warns an account hit its daily limit, switch to another account on that channel or stop.`;
 
 const platform = z.enum(PLATFORM_IDS as [string, ...string[]]).optional();
 const when = z.string().datetime({ offset: true }).optional();
@@ -86,6 +93,8 @@ const TOOLS = [
   },
 ] as const;
 
+const ALL_TOOLS = [...TOOLS, ...LOG_TOOLS];
+
 const schemas = {
   log_outreach: z.object({
     profile: z.string().min(1).max(1000),
@@ -111,6 +120,7 @@ const schemas = {
 };
 
 async function callTool(me: User, name: string, args: unknown) {
+  if (isLogTool(name)) return callLogTool(me, name, args);
   switch (name) {
     case "log_outreach": {
       const a = schemas.log_outreach.parse(args ?? {});
@@ -156,7 +166,7 @@ async function handle(msg: RpcRequest, me: User, tokenName: string) {
     case "ping":
       return reply({});
     case "tools/list":
-      return reply({ tools: TOOLS });
+      return reply({ tools: ALL_TOOLS });
     case "tools/call": {
       const name = String(msg.params?.name ?? "");
       try {
@@ -164,12 +174,12 @@ async function handle(msg: RpcRequest, me: User, tokenName: string) {
         return reply({ content: [{ type: "text", text: JSON.stringify(result, null, 2) }], structuredContent: result, isError: false });
       } catch (e) {
         const text =
-          e instanceof OutreachError
+          e instanceof OutreachError || e instanceof LogError
             ? e.message
             : e instanceof z.ZodError
               ? `Invalid arguments: ${e.issues.map((i) => `${i.path.join(".") || "input"} ${i.message}`).join("; ")}`
               : "The CRM couldn't save that. Try again shortly.";
-        if (!(e instanceof OutreachError) && !(e instanceof z.ZodError)) console.error("[mcp]", name, e);
+        if (!(e instanceof OutreachError) && !(e instanceof LogError) && !(e instanceof z.ZodError)) console.error("[mcp]", name, e);
         return reply({ content: [{ type: "text", text }], isError: true });
       }
     }
